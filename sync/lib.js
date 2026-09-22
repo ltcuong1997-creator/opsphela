@@ -26,6 +26,7 @@ const path = require('path');
 const COLLECTION = 'd05Daily';
 const STATE_COLLECTION = 'syncState';
 const DAYS_COLLECTION = 'd05Days';
+const STORES_COLLECTION = 'stores';
 
 // Tên cột trong file Excel D05 (khác bảng trên web: "Ngày" thay cho "Thời
 // gian", "Hoá đơn" thay cho "Mã hoá đơn", và có thêm cột "Cửa hàng").
@@ -35,9 +36,18 @@ const COL = {
   itemCode: 'Mã hàng',
   itemName: 'Tên hàng',
   group: 'Nhóm món',
+  type: 'Loại món',
   quantity: 'Số lượng',
   revenue: 'Tổng tiền',
   store: 'Cửa hàng',
+  source: 'Nguồn',
+  payment: 'PTTT',
+  area: 'Khu vực',
+  discount: 'Giảm giá',
+  serviceFee: 'Phí dịch vụ',
+  tax: 'Thuế',
+  shipFee: 'Phí ship',
+  commission: 'Hoa hồng',
 };
 
 function loadEnv() {
@@ -109,37 +119,75 @@ function keyOf(s) {
 function aggregate(rows) {
   const docs = {};
   const bills = {};
+  const sourceBills = {}; // id -> { sourceKey: Set(billId) } - để tính AOV riêng theo nguồn đơn
   for (const row of rows) {
     const date = normalizeDate(row[COL.time]);
     if (!date) continue;
     const storeName = String(row[COL.store] || 'Không rõ').trim();
     const storeId = row.__storeId || keyOf(storeName);
     const id = `${date}_${storeId}`;
-    const doc = (docs[id] ||= { date, storeId, storeName, revenue: 0, quantity: 0, bills: 0, items: {} });
+    const doc = (docs[id] ||= {
+      date, storeId, storeName, revenue: 0, quantity: 0, bills: 0,
+      discount: 0, serviceFee: 0, tax: 0, shipFee: 0, commission: 0,
+      items: {}, sources: {}, payments: {}, areas: {},
+    });
     const qty = toNumber(row[COL.quantity]);
     const rev = toNumber(row[COL.revenue]);
     doc.revenue += rev;
     doc.quantity += qty;
+    doc.discount += toNumber(row[COL.discount]);
+    doc.serviceFee += toNumber(row[COL.serviceFee]);
+    doc.tax += toNumber(row[COL.tax]);
+    doc.shipFee += toNumber(row[COL.shipFee]);
+    doc.commission += toNumber(row[COL.commission]);
     (bills[id] ||= new Set()).add(row[COL.bill]);
+    const srcKey = keyOf(row[COL.source] || 'Không rõ');
+    (((sourceBills[id] ||= {})[srcKey] ||= new Set())).add(row[COL.bill]);
 
     const code = row[COL.itemCode] || row[COL.itemName];
     const item = (doc.items[keyOf(code)] ||= {
       code: row[COL.itemCode] || null,
       name: row[COL.itemName] || null,
       group: row[COL.group] || null,
+      type: row[COL.type] || null,
       quantity: 0,
       revenue: 0,
     });
     item.quantity += qty;
     item.revenue += rev;
+
+    addBreakdown(doc.sources, row[COL.source], qty, rev);
+    addBreakdown(doc.payments, row[COL.payment], qty, rev);
+    addBreakdown(doc.areas, row[COL.area], qty, rev);
   }
-  for (const id in docs) docs[id].bills = bills[id].size;
+  for (const id in docs) {
+    docs[id].bills = bills[id].size;
+    for (const [k, set] of Object.entries(sourceBills[id] || {})) {
+      if (docs[id].sources[k]) docs[id].sources[k].bills = set.size;
+    }
+  }
   return docs;
 }
 
+// Gộp 1 chiều theo tên (nguồn đơn / PTTT / khu vực) -> { [key]: { name, quantity, revenue } }.
+// sources{} còn có thêm .bills (số hoá đơn riêng theo nguồn, gán ở aggregate()) để tính AOV theo nguồn.
+function addBreakdown(map, name, qty, rev) {
+  name = String(name || 'Không rõ').trim() || 'Không rõ';
+  const entry = (map[keyOf(name)] ||= { name, quantity: 0, revenue: 0 });
+  entry.quantity += qty;
+  entry.revenue += rev;
+}
+
+function sortedEntries(map) {
+  return Object.keys(map).sort().map((k) => [k, map[k]]);
+}
+
 function hashOf(doc) {
-  const items = Object.keys(doc.items).sort().map((k) => [k, doc.items[k]]);
-  const stable = JSON.stringify([doc.date, doc.storeId, doc.storeName, doc.revenue, doc.quantity, doc.bills, items]);
+  const stable = JSON.stringify([
+    doc.date, doc.storeId, doc.storeName, doc.revenue, doc.quantity, doc.bills,
+    doc.discount, doc.serviceFee, doc.tax, doc.shipFee, doc.commission,
+    sortedEntries(doc.items), sortedEntries(doc.sources), sortedEntries(doc.payments), sortedEntries(doc.areas),
+  ]);
   return crypto.createHash('sha1').update(stable).digest('hex').slice(0, 16);
 }
 
@@ -150,6 +198,7 @@ async function writeChanged(db, docs) {
 
   let written = 0;
   let skipped = 0;
+  const changedDocs = [];
   for (const [date, dayDocs] of Object.entries(byDate)) {
     const stateRef = db.collection(STATE_COLLECTION).doc(`d05_${date}`);
     const oldHashes = (await stateRef.get()).data()?.hashes || {};
@@ -194,23 +243,76 @@ async function writeChanged(db, docs) {
       await batch.commit();
     }
     written += changed.length;
+    for (const [, doc] of changed) changedDocs.push(doc);
   }
+
+  // Danh mục cửa hàng dùng cho trang "Chi nhánh" (gán Region/City/AM). Merge để không
+  // đụng field admin đã gán trên web - script chỉ giữ storeId/storeName luôn đủ và đúng.
+  // Chỉ các cửa hàng vừa có doc thay đổi: cửa hàng mới / đổi tên luôn làm hash đổi nên
+  // vẫn được cập nhật, còn lần chạy không có gì mới thì không tốn thêm lượt ghi nào.
+  const stores = new Map();
+  for (const doc of changedDocs) stores.set(doc.storeId, doc.storeName);
+  if (stores.size) {
+    const catalogBatch = db.batch();
+    for (const [storeId, storeName] of stores) {
+      catalogBatch.set(db.collection(STORES_COLLECTION).doc(storeId), {
+        storeId, storeName, updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+    await catalogBatch.commit();
+  }
+
   return { written, skipped };
+}
+
+// "ET" = tại chỗ + mang về, "D" = các nguồn còn lại (giao hàng/app). Tách sẵn theo từng
+// cửa hàng để trang Summary tính được AOV-ET / AOV-D khi lọc theo vùng, mà không phải
+// đọc d05Daily (nặng gấp ~90 lần).
+const ET_KEYS = ['tai-cho', 'mang-ve'];
+function etSplit(sources) {
+  const et = { revenue: 0, bills: 0 };
+  const dlv = { revenue: 0, bills: 0 };
+  for (const [k, v] of Object.entries(sources || {})) {
+    const bucket = ET_KEYS.includes(k) ? et : dlv;
+    bucket.revenue += v.revenue || 0;
+    bucket.bills += v.bills || 0;
+  }
+  return { et, dlv };
 }
 
 // Gộp các doc cửa hàng của 1 ngày thành doc tóm tắt d05Days/{date}.
 function daySummary(date, dayDocs) {
-  const s = { date, revenue: 0, bills: 0, quantity: 0, storeCount: 0, stores: {}, items: {} };
+  const s = {
+    date, revenue: 0, bills: 0, quantity: 0, storeCount: 0,
+    discount: 0, serviceFee: 0, tax: 0, shipFee: 0, commission: 0,
+    stores: {}, items: {}, sources: {}, payments: {}, areas: {},
+  };
   for (const d of Object.values(dayDocs)) {
     s.revenue += d.revenue;
     s.bills += d.bills;
     s.quantity += d.quantity;
+    s.discount += d.discount || 0;
+    s.serviceFee += d.serviceFee || 0;
+    s.tax += d.tax || 0;
+    s.shipFee += d.shipFee || 0;
+    s.commission += d.commission || 0;
     s.storeCount++;
-    s.stores[d.storeId] = { name: d.storeName, revenue: d.revenue, bills: d.bills, quantity: d.quantity };
+    s.stores[d.storeId] = {
+      name: d.storeName, revenue: d.revenue, bills: d.bills, quantity: d.quantity, commission: d.commission || 0,
+      ...etSplit(d.sources),
+    };
     for (const [k, it] of Object.entries(d.items || {})) {
-      const x = (s.items[k] ||= { name: it.name, group: it.group, quantity: 0, revenue: 0 });
+      const x = (s.items[k] ||= { name: it.name, group: it.group, type: it.type, quantity: 0, revenue: 0 });
       x.quantity += it.quantity;
       x.revenue += it.revenue;
+    }
+    for (const dim of ['sources', 'payments', 'areas']) {
+      for (const [k, v] of Object.entries(d[dim] || {})) {
+        const x = (s[dim][k] ||= { name: v.name, quantity: 0, revenue: 0, bills: 0 });
+        x.quantity += v.quantity;
+        x.revenue += v.revenue;
+        x.bills += v.bills || 0;
+      }
     }
   }
   return s;
