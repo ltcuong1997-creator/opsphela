@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node sync-report.js",
     "dry-run": "node sync-report.js --dry-run",
-    "import": "node import-file.js"
+    "import": "node import-file.js",
+    "preview": "node preview-server.js"
   },
   "dependencies": {
     "playwright": "^1.47.0",

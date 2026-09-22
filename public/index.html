@@ -1,70 +1,1005 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Phê La · Báo cáo</title>
-<link rel="stylesheet" href="styles.css" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F7F5F4">
+<title>Phê La — Báo cáo bán hàng</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=K2D:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* =====================================================================
+   NỀN NGÀ, THẺ NỔI, KHÔNG VIỀN NGĂN
+   ---------------------------------------------------------------------
+   Dựng theo đúng nguyên tắc của ZSpace: NỀN NGÀ chạy liền mạch cho cả trang, cột menu, thanh trên
+   và mọi khe hở giữa các thẻ — chỉ THẺ NỘI DUNG mới trắng tinh. Mắt tự tách được "vùng ngà =
+   điều hướng / vùng trắng = làm việc" mà không cần một đường kẻ nào, nên bỏ được toàn bộ viền.
+   Chiều sâu đến từ BÓNG NHIỀU TẦNG chứ không phải nghiêng/xoay: một tầng sát viền cho nét, hai
+   tầng rộng rất nhạt cho độ nổi. Bảng số liệu vẫn phẳng để còn gõ được.
+   Lấy nguyên từ Cliff House. Màu thương hiệu (--brand*) đang TẠM để vàng đồng của Cliff House —
+   chờ mã màu Phê La, đổi đúng các biến --brand* (và rgba trong --sh-brand) là cả app đổi theo.
+   ===================================================================== */
+:root{
+  --ink:#14181C;
+  --ink-2:#1F252B;
+  --canvas:#F7F5F4;          /* ngà ấm — nền của TẤT CẢ trừ thẻ */
+  --card:#FFFFFF;
+  --line:#E8E5E3;
+  --line-soft:#F1EFED;
+  --txt:#14181C;
+  --txt-2:#5A6068;
+  --txt-3:#8B9199;
+  --brand:#B07D2B;
+  --brand-dark:#8C6220;
+  --brand-bright:#D9A23F;
+  --brand-wash:#FAF3E4;
+  --green:#12875A;
+  --green-wash:#E6F4EE;
+  --red:#C4443C;
+  --red-wash:#FBECEB;
+  --blue:#2F6DB5;
+  --blue-wash:#EAF1FA;
+  --violet:#6C5CE7;
+  --violet-wash:#EFEDFE;
+  --amber:#D98A0B;
+  --amber-wash:#FDF3E0;
+  --r:12px; --r-l:18px; --r-xl:24px;
+  /* Ba tầng bóng: sát viền cho nét, rộng vừa cho khối, rộng rất nhạt cho độ cao */
+  --sh-1:0 1px 2px rgba(20,24,28,.05), 0 4px 10px rgba(20,24,28,.05);
+  --sh-card:0 1px 2px rgba(20,24,28,.05), 0 5px 14px rgba(20,24,28,.055), 0 16px 40px rgba(20,24,28,.05);
+  --sh-up:0 2px 4px rgba(20,24,28,.05), 0 8px 18px rgba(20,24,28,.07), 0 26px 52px rgba(20,24,28,.08);
+  --sh-brand:0 4px 12px rgba(176,125,43,.26);
+  --sans:'K2D', system-ui, -apple-system, sans-serif;
+  --nav-w:240px;
+  --top-h:64px;
+  /* Nhịp chung của mọi chuyển động chậm — cùng một đường cong thì cả app đi cùng một nhịp thở */
+  --ease:cubic-bezier(.16,1,.3,1);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{font-family:var(--sans);background:var(--canvas);color:var(--txt);font-size:14.5px;line-height:1.5;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+a{color:inherit;text-decoration:none}
+svg{flex-shrink:0}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#DAD6D3;border-radius:9px}
+::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
+.mono{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--txt-3)}
+.hint{font-size:12px;color:var(--txt-3);line-height:1.5}
+
+/* ================= KHUNG ================= */
+.shell{display:flex;min-height:100vh;min-height:100dvh}
+/* Đổi đúng một biến --nav-w là cả cột menu lẫn lề trái vùng làm việc đi theo */
+.shell.nav-min{--nav-w:76px}
+.nav{width:var(--nav-w);flex:0 0 var(--nav-w);background:var(--canvas);color:var(--txt);
+  display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;z-index:40;padding:4px 12px 0}
+.nav-brand{padding:16px 6px 14px;display:flex;align-items:center;gap:11px}
+.logo{width:38px;height:38px;border-radius:12px;flex:0 0 38px;
+  background:linear-gradient(150deg,var(--brand-bright),var(--brand-dark));
+  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:15px;
+  letter-spacing:-.02em;box-shadow:var(--sh-brand)}
+.nav-nm{min-width:0}
+.nav-brand b{font-size:15px;font-weight:700;letter-spacing:-.01em;display:block;line-height:1.15;color:var(--txt)}
+.nav-brand small{font-size:10px;color:var(--txt-3);letter-spacing:.1em;text-transform:uppercase;font-weight:600}
+.nav-min-btn{margin-left:auto;width:30px;height:30px;border-radius:9px;color:var(--txt-3);
+  display:flex;align-items:center;justify-content:center;flex:0 0 30px;transition:background .16s,color .16s}
+.nav-min-btn:hover{background:rgba(20,24,28,.06);color:var(--txt)}
+/* Bỏ hẳn thanh cuộn xám của cột menu — vẫn cuộn được bằng con lăn / vuốt */
+.nav-scroll{flex:1;overflow-y:auto;padding:0 0 14px;position:relative;scrollbar-width:none;-ms-overflow-style:none}
+.nav-scroll::-webkit-scrollbar{display:none;width:0;height:0}
+.nav-group{margin:15px 0 5px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.02em;
+  color:var(--txt-3);white-space:nowrap;overflow:hidden}
+.nav-item{display:flex;align-items:center;gap:11px;width:100%;padding:8px 11px;border-radius:10px;
+  color:var(--txt-2);font-weight:500;font-size:14px;margin-bottom:2px;text-align:left;
+  position:relative;z-index:1;transition:color .2s,background-color .2s}
+.nav-item:hover{background:rgba(20,24,28,.05);color:var(--txt)}
+.nav-item .ic{width:18px;height:18px;flex:0 0 18px;color:var(--txt-3);transition:color .2s}
+/* Mục đang mở KHÔNG tự tô nền — viên pill .nav-hl trượt tới nằm dưới nó mới là cái tô màu */
+.nav-item.on{background:transparent;color:#fff;font-weight:600}
+.nav-item.on .ic{color:#fff}
+.nav-lb{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Viên highlight trượt: JS đo vị trí mục đang mở (useHlRect), CSS chỉ lo trượt top/height */
+.nav-hl{position:absolute;left:0;right:0;border-radius:10px;background:var(--brand);
+  box-shadow:var(--sh-brand);z-index:0;pointer-events:none;
+  transition:top .5s var(--ease),height .5s var(--ease)}
+.nav-foot{border-top:1px solid var(--line);padding:12px 2px 16px;margin-top:auto}
+.nav-user{display:flex;align-items:center;gap:10px;padding:9px;border-radius:12px;
+  background:var(--card);box-shadow:var(--sh-1)}
+.nav-user b{font-size:13px;display:block;line-height:1.25;color:var(--txt)}
+.nav-user small{font-size:11px;color:var(--txt-3);display:block}
+.av{width:30px;height:30px;border-radius:99px;flex:0 0 30px;background:var(--brand);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px}
+.nav-out{margin-top:8px;width:100%;padding:8px;border-radius:10px;background:var(--card);
+  color:var(--txt-2);font-size:13px;font-weight:600;box-shadow:var(--sh-1);transition:color .16s,box-shadow .2s}
+.nav-out:hover{color:var(--red);box-shadow:var(--sh-up)}
+
+/* ---- MENU THU GỌN: chỉ còn dải icon ---- */
+.nav-min .nav-brand{flex-direction:column;gap:10px;padding:16px 0 12px}
+.nav-min .nav-nm{display:none}
+.nav-min .nav-min-btn{margin-left:0}
+.nav-min .nav-item{justify-content:center;padding:10px 0;gap:0}
+.nav-min .nav-lb{display:none}
+.nav-min .nav-hl{right:auto;width:52px}
+/* Nhãn nhóm thu lại thành một vạch mảnh — vẫn thấy ranh giới nhóm mà không tốn dòng chữ */
+.nav-min .nav-group{height:1px;padding:0;margin:10px 14px;background:var(--line);color:transparent;overflow:hidden;font-size:0}
+.nav-min .nav-foot{padding:12px 0 16px}
+.nav-min .nav-user{justify-content:center;padding:6px}
+.nav-min .nav-user .who{display:none}
+.nav-min .nav-out{font-size:0;padding:9px 0}
+.nav-min .nav-out::before{content:'⏻';font-size:14px}
+/* ---- Rê chuột vào một icon thì ĐÚNG mục đó dãn ngang ra hiện tên ----
+   Khó ở chỗ .nav-scroll phải overflow-y:auto (menu dài hơn màn hình), mà overflow-y khác visible là
+   trình duyệt ép luôn overflow-x -> nhãn dãn ra ngoài 76px bị cắt mất. Cách gỡ của ZSpace: cho vùng
+   cuộn RỘNG hẳn ra đè lên nội dung trang nhưng trong suốt và pointer-events:none — chỉ riêng từng
+   mục menu nhận chuột. Chỗ trống bên phải vẫn bấm xuyên xuống trang như thường, con lăn trên icon
+   vẫn cuộn menu vì sự kiện cuộn đi theo cây phần tử chứ không theo vùng bắt chuột. */
+@media(hover:hover) and (min-width:961px){
+  .nav-min .nav-scroll{width:340px;overflow-x:hidden;pointer-events:none;padding-right:20px}
+  /* Vùng cuộn phải rộng 340px thì nhãn mới dãn ra ngoài được, nhưng vạch ngăn nhóm là khối
+     block nên nó ăn theo luôn 340px và kẻ một đường dài tràn ra giữa trang. Chốt cứng bề ngang
+     đúng bằng dải icon: 52px pill trừ 2×14px lề = 24px, nằm gọn chính giữa cột. */
+  .nav-min .nav-group{width:24px}
+  .nav-min .nav-item{pointer-events:auto;width:fit-content;min-width:52px;max-width:52px;
+    justify-content:flex-start;padding:10px 16px 10px 17px;gap:12px;overflow:hidden;white-space:nowrap;
+    transition:max-width .42s var(--ease),background-color .2s,box-shadow .3s,color .2s}
+  .nav-min .nav-lb{display:inline;opacity:0;transform:translateX(-8px);
+    transition:opacity .18s ease,transform .38s var(--ease)}
+  .nav-min .nav-item:hover{max-width:280px;z-index:3;background:var(--card);color:var(--txt);box-shadow:var(--sh-up)}
+  .nav-min .nav-item.on:hover{background:var(--brand);color:#fff;box-shadow:var(--sh-brand)}
+  .nav-min .nav-item:hover .nav-lb{opacity:1;transform:none;transition-delay:.06s}
+}
+
+.main{flex:1;margin-left:var(--nav-w);min-width:0;display:flex;flex-direction:column}
+/* Thanh trên cùng nền ngà, không viền dưới — chỉ hơi mờ khi nội dung trượt qua bên dưới */
+.topbar{height:var(--top-h);background:rgba(247,245,244,.78);backdrop-filter:blur(14px) saturate(160%);
+  -webkit-backdrop-filter:blur(14px) saturate(160%);display:flex;align-items:center;gap:14px;
+  padding:0 22px;position:sticky;top:0;z-index:30}
+.topbar h1{font-size:20px;font-weight:700;margin:0;letter-spacing:-.02em;line-height:1.25}
+.topbar .sub{font-size:12px;color:var(--txt-3);font-weight:500;line-height:1.3}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:9px}
+.top-date{font-size:13px;font-weight:600;color:var(--txt-3);background:var(--card);border-radius:99px;
+  padding:7px 13px;box-shadow:var(--sh-1);white-space:nowrap;transition:box-shadow .2s}
+.top-date:hover{box-shadow:var(--sh-up)}
+/* Vùng làm việc dùng trọn bề ngang: thu gọn menu là bảng tự rộng thêm đúng 164px */
+.page{padding:20px 22px 40px;max-width:none;width:100%}
+
+/* ================= MẢNH GHÉP ================= */
+/* Thẻ: bỏ viền, nổi bằng bóng, bo tròn hơn */
+.card{background:var(--card);border:none;border-radius:var(--r-l);box-shadow:var(--sh-card);
+  margin-bottom:16px;overflow:hidden;transition:box-shadow .3s cubic-bezier(.22,1,.36,1)}
+.card:hover{box-shadow:var(--sh-up)}
+/* Thẻ lồng trong thẻ phải CHÌM xuống, không được nổi chồng lên nhau */
+.card .card{box-shadow:none;background:var(--canvas);border-radius:14px}
+.card .card:hover{box-shadow:none}
+.card-h{padding:15px 18px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.card-h h3{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}
+.card-h p{margin:1px 0 0;font-size:12px;color:var(--txt-3)}
+.card-h .sp{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.card-b{padding:18px}
+
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:10px;
+  background:var(--card);border:1px solid transparent;font-size:13px;font-weight:600;
+  box-shadow:var(--sh-1);transition:box-shadow .22s,background .16s,color .16s;white-space:nowrap}
+.btn:hover{background:#fff;box-shadow:var(--sh-up)}
+.btn.pri{background:var(--brand);color:#fff;box-shadow:var(--sh-brand)}
+.btn.pri:hover{background:var(--brand-dark);box-shadow:0 8px 22px rgba(176,125,43,.3)}
+.btn.dark{background:var(--ink);color:#fff;box-shadow:0 4px 14px rgba(20,24,28,.2)}
+.btn.dark:hover{background:var(--ink-2);box-shadow:0 8px 22px rgba(20,24,28,.26)}
+.btn.danger{color:var(--red)}
+.btn.danger:hover{background:var(--red-wash)}
+.btn.sm{padding:5px 10px;font-size:12px;border-radius:9px}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:var(--sh-1)}
+
+.inp{width:100%;padding:8px 11px;border-radius:10px;border:1px solid var(--line);background:#fff;
+  font-size:13.5px;transition:border-color .16s,box-shadow .16s}
+.inp:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(176,125,43,.13)}
+.inp.num{text-align:right;font-variant-numeric:tabular-nums}
+select.inp{cursor:pointer}
+select.inp:hover{border-color:#D8D3D0}
+.fld{margin-bottom:12px}
+.fld label{display:block;font-size:12px;font-weight:600;color:var(--txt-2);margin-bottom:5px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+
+.tag{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:99px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.t-gray{background:#EFEDEB;color:var(--txt-2)}
+.t-green{background:var(--green-wash);color:var(--green)}
+.t-red{background:var(--red-wash);color:var(--red)}
+.t-amber{background:var(--amber-wash);color:#8A6008}
+.t-blue{background:var(--blue-wash);color:var(--blue)}
+.t-brand{background:var(--brand-wash);color:var(--brand-dark)}
+.t-violet{background:var(--violet-wash);color:var(--violet)}
+
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table.tb{width:100%;border-collapse:collapse;font-size:13.5px}
+table.tb th{text-align:left;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--txt-3);padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--card)}
+table.tb td{padding:10px 12px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+table.tb tr:last-child td{border-bottom:none}
+table.tb tbody tr:hover{background:#FBFAF9}
+table.tb .r{text-align:right;font-variant-numeric:tabular-nums}
+table.tb tfoot td{padding:11px 12px;border-top:2px solid var(--line);font-weight:700;background:#FBFAF9}
+.empty{padding:40px 20px;text-align:center;color:var(--txt-3);font-size:13.5px}
+
+/* ================= CHỈ SỐ ================= */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:16px}
+.stat{background:var(--card);border:none;border-radius:var(--r-l);padding:15px 17px;
+  box-shadow:var(--sh-card);position:relative;overflow:hidden;transition:box-shadow .3s cubic-bezier(.22,1,.36,1)}
+.stat:hover{box-shadow:var(--sh-up)}
+.stat .lb{font-size:11.5px;font-weight:500;color:var(--txt-3);display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.stat .ic-sq{width:26px;height:26px;border-radius:9px;flex:0 0 26px;background:var(--canvas);
+  display:flex;align-items:center;justify-content:center;font-size:13px}
+.stat .vl{font-size:24px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.15}
+.stat .dt{font-size:11.5px;color:var(--txt-3);margin-top:5px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+/* Thẻ nổi bật: khối tối đặc, là điểm neo mắt của cả hàng chỉ số */
+.stat.hero{background:linear-gradient(140deg,var(--ink),#242C33);color:#fff;box-shadow:0 2px 4px rgba(20,24,28,.1),0 10px 24px rgba(20,24,28,.18),0 28px 56px rgba(20,24,28,.16)}
+.stat.hero:hover{box-shadow:0 4px 8px rgba(20,24,28,.12),0 14px 30px rgba(20,24,28,.22),0 34px 66px rgba(20,24,28,.2)}
+.stat.hero .lb{color:#9AA4AD}
+.stat.hero .dt{color:#8D97A0}
+.stat.hero .ic-sq{background:rgba(255,255,255,.1)}
+.up{color:var(--green);font-weight:700}
+.dn{color:var(--red);font-weight:700}
+.stat.hero .up{color:#3FCB8E}
+.stat.hero .dn{color:#F08078}
+
+/* ================= BIỂU ĐỒ ================= */
+.chart-wrap{padding:8px 18px 18px}
+.bar-row{display:flex;align-items:center;gap:12px;padding:6px 0;border-radius:9px;transition:background .16s}
+.bar-row .nm{width:190px;flex:0 0 190px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:7px;min-width:0}
+.bar-row .nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-track{flex:1;height:22px;background:var(--line-soft);border-radius:7px;overflow:hidden;min-width:40px}
+.bar-fill{height:100%;border-radius:7px;transition:width .9s cubic-bezier(.22,1,.36,1)}
+.bar-row .vl{width:120px;flex:0 0 120px;text-align:right;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.bar-row .pc{width:52px;flex:0 0 52px;text-align:right;font-size:11.5px;color:var(--txt-3);font-variant-numeric:tabular-nums}
+/* Cùng danh sách thanh ngang nhưng nằm trong cột hẹp: bóp tên lại và bỏ cột phần trăm,
+   không thì con số bên phải bị cắt mất đuôi */
+.bars-tight .nm{width:104px;flex:0 0 104px;font-size:12.5px}
+.bars-tight .vl{width:104px;flex:0 0 104px;font-size:12.5px}
+.bars-tight .pc{display:none}
+
+
+
+/* ================= CỬA SỔ NỔI ================= */
+.mask{position:fixed;inset:0;background:rgba(20,24,28,.4);backdrop-filter:blur(3px);z-index:80;
+  display:flex;align-items:center;justify-content:center;padding:18px;animation:fade .15s}
+.modal{background:var(--card);border-radius:var(--r-xl);box-shadow:0 30px 80px rgba(20,24,28,.28);
+  width:100%;max-width:560px;max-height:88vh;display:flex;flex-direction:column;
+  animation:pop .22s cubic-bezier(.2,.9,.3,1.1)}
+.modal.wide{max-width:840px}
+.modal-h{padding:18px 22px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:12px}
+.modal-h h3{margin:0;font-size:16px;font-weight:700}
+.modal-h p{margin:2px 0 0;font-size:12px;color:var(--txt-3)}
+.modal-b{padding:20px 22px;overflow-y:auto;flex:1}
+.modal-f{padding:15px 22px;border-top:1px solid var(--line-soft);display:flex;gap:9px;justify-content:flex-end}
+.x{margin-left:auto;width:32px;height:32px;border-radius:10px;display:flex;align-items:center;
+  justify-content:center;color:var(--txt-3);transition:background .16s,color .16s}
+.x:hover{background:var(--canvas);color:var(--txt)}
+
+
+/* ================= ĐĂNG NHẬP ================= */
+.login{min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;
+  padding:20px;background:radial-gradient(1200px 600px at 20% 0%,#2A2118,#14181C 70%)}
+.login-card{width:100%;max-width:410px;background:var(--card);border-radius:26px;
+  box-shadow:0 34px 90px rgba(0,0,0,.4);padding:32px 30px}
+.login-card .logo{width:54px;height:54px;border-radius:17px;font-size:19px;margin-bottom:16px}
+.login-card h2{margin:0 0 4px;font-size:22px;font-weight:800;letter-spacing:-.025em}
+.login-card p{margin:0 0 20px;font-size:13px;color:var(--txt-3)}
+.err{background:var(--red-wash);color:var(--red);padding:9px 12px;border-radius:10px;font-size:12.5px;font-weight:600;margin-bottom:12px}
+
+/* ================= DẢI NHẮC ================= */
+.banner{display:flex;align-items:flex-start;gap:11px;padding:13px 16px;border-radius:14px;
+  background:var(--amber-wash);margin-bottom:16px;font-size:12.5px;color:#7A5410;line-height:1.55;
+  box-shadow:var(--sh-1)}
+.banner b{color:#5E4009}
+
+/* =====================================================================
+   NHỊP CHUYỂN CẢNH
+   ---------------------------------------------------------------------
+   1) trang cũ mờ đi (.page.leaving, ~0.22s) rồi mới tháo ra;
+   2) hàng chỉ số hiện trước, số chạy từ 0 lên (countUp trong JS);
+   3) các thẻ bên dưới bung dần từ trên xuống, cái sau trễ hơn cái trước;
+   4) tiêu đề cuộn: chữ cũ trượt xuống mờ đi, chữ mới trượt từ trên xuống vào chỗ (RollSwap).
+   fill-mode là `backwards` chứ KHÔNG phải `both`: giữ lại transform/clip-path sau khi chạy xong sẽ
+   biến .page/.card thành khung chứa của mọi modal position:fixed bên trong -> modal lệch chỗ.
+   Cố ý KHÔNG tắt theo prefers-reduced-motion: máy Windows bật "tiết kiệm pin" là cờ đó bật theo,
+   mà hiệu ứng này là thứ chủ app chủ động yêu cầu chứ không phải trang trí thêm.
+   ===================================================================== */
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{transform:translateY(12px) scale(.98);opacity:0}to{transform:none;opacity:1}}
+@keyframes pageOut{to{opacity:0;transform:translateY(-6px)}}
+@keyframes pageIn{from{opacity:0}to{opacity:1}}
+@keyframes kpiIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes cardIn{from{opacity:0;transform:translateY(-14px);clip-path:inset(0 0 100% 0)}
+  to{opacity:1;transform:none;clip-path:inset(-80px)}}
+.page{animation:pageIn .3s ease-out backwards}
+.page.leaving{animation:pageOut .22s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
+.page .stat{animation:kpiIn .55s var(--ease) .05s backwards}
+.page .card{animation:cardIn .7s var(--ease) .18s backwards}
+.page .card:nth-child(2){animation-delay:.26s}
+.page .card:nth-child(3){animation-delay:.34s}
+.page .card:nth-child(4){animation-delay:.42s}
+.page .card:nth-child(5){animation-delay:.50s}
+.page .card:nth-child(n+6){animation-delay:.56s}
+/* Thẻ lồng trong thẻ và chỉ số trong thẻ không diễn lại lần nữa — bung hai tầng là rối mắt */
+.page .card .card,.page .card .stat{animation:none}
+.page.leaving .card,.page.leaving .stat{animation:none}
+
+/* Tiêu đề trang cuộn chữ */
+.roll{position:relative}
+.roll-out{position:absolute;left:0;right:0;top:0;pointer-events:none;
+  animation:rollOut .42s cubic-bezier(.4,0,.2,1) forwards}
+.roll-in{animation:rollIn .6s var(--ease) .2s backwards}
+@keyframes rollOut{to{opacity:0;transform:translateY(80%);filter:blur(2px)}}
+@keyframes rollIn{from{opacity:0;transform:translateY(-80%);filter:blur(2px)}to{opacity:1;transform:none;filter:none}}
+
+/* ================= MÀN HÌNH HẸP ================= */
+.mob-bar{display:none}
+@media(max-width:960px){
+  .nav{display:none}
+  .main{margin-left:0}
+  /* Màn hẹp: tiêu đề chiếm trọn một dòng, mấy cái chip xuống dòng dưới. Để chung một dòng thì
+     tiêu đề bị bóp còn ba chữ một dòng, đọc như thơ. */
+  .topbar{position:static;height:auto;padding:calc(8px + env(safe-area-inset-top)) 14px 6px;
+    background:none;backdrop-filter:none;-webkit-backdrop-filter:none;flex-wrap:wrap;gap:8px}
+  .topbar > :first-child{width:100%}
+  .topbar h1{font-size:19px}
+  .top-right{margin-left:0}
+  .top-date{padding:5px 11px;font-size:12px}
+  .page{padding:4px 14px 96px}
+  .stats{grid-template-columns:1fr 1fr;gap:10px}
+  .stat{padding:13px 14px;border-radius:16px}
+  .stat .vl{font-size:19px}
+  .card{border-radius:16px}
+  .card-b{padding:15px}
+  .grid2,.grid3{grid-template-columns:1fr}
+  .bar-row .nm{width:118px;flex:0 0 118px;font-size:12px}
+  .bar-row .vl{width:96px;flex:0 0 96px;font-size:12px}
+  .bar-row .pc{display:none}
+  .mob-bar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:50;
+    background:rgba(247,245,244,.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    box-shadow:0 -6px 24px rgba(20,24,28,.08);padding:6px 4px calc(6px + env(safe-area-inset-bottom));gap:2px}
+  .mob-bar button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;
+    border-radius:11px;color:var(--txt-3);font-size:9.5px;font-weight:600;transition:color .18s,background .18s}
+  .mob-bar button.on{color:#fff;background:var(--brand);box-shadow:var(--sh-brand)}
+  .modal{max-height:92vh;border-radius:20px}
+}
+/* Hai cột báo cáo: hẹp hơn 1100px là xếp chồng, không thì bảng bên phải bị bóp nghẹt */
+@media(max-width:1100px){ .rp-grid{grid-template-columns:1fr !important} }
+/* Tên món dài ("Ô Long Nhài Sữa - trà sữa - size LAAA") - cột tên rộng hơn, bỏ cột % */
+.bars-items .nm{width:230px;flex:0 0 230px;font-size:12.5px}
+.bars-items .pc{display:none}
+@media(max-width:960px){ .bars-items .nm{width:130px;flex:0 0 130px} }
+/* Chọn nhanh khoảng ngày trên thanh trên cùng */
+.seg{display:flex;gap:2px;background:var(--card);border-radius:99px;padding:3px;box-shadow:var(--sh-1)}
+.seg button{padding:5px 12px;border-radius:99px;font-size:12.5px;font-weight:600;color:var(--txt-3);transition:background .2s,color .2s}
+.seg button:hover{color:var(--txt)}
+.seg button.on{background:var(--brand);color:#fff;box-shadow:var(--sh-brand)}
+@media(max-width:960px){ .seg button{padding:4px 9px;font-size:11.5px} }
+</style>
 </head>
 <body>
+<div id="root"></div>
+<div id="boot" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#F7F5F4;font-family:'K2D',system-ui,sans-serif;color:#8D96A3;font-size:13px;z-index:200">Đang tải…</div>
 
-  <!-- MÀN HÌNH ĐĂNG NHẬP -->
-  <div id="login-screen" class="login-screen">
-    <form id="login-form" class="login-card">
-      <h1>Phê La · Báo cáo</h1>
-      <p class="muted">Đăng nhập để xem số liệu</p>
-      <label>Email
-        <input type="email" id="login-email" required autocomplete="username" />
-      </label>
-      <label>Mật khẩu
-        <input type="password" id="login-password" required autocomplete="current-password" />
-      </label>
-      <button type="submit">Đăng nhập</button>
-      <p id="login-error" class="error-text" hidden></p>
-    </form>
-  </div>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.2/firebase-app-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.2/firebase-auth-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
 
-  <!-- KHUNG DASHBOARD -->
-  <div id="app-shell" class="app-shell" hidden>
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <span class="brand">Phê La</span>
-        <span class="muted small">Báo cáo</span>
-      </div>
-      <nav id="report-nav" class="report-nav">
-        <!-- danh sách loại báo cáo (report types) được nạp động từ Firestore -->
-      </nav>
-      <button id="logout-btn" class="logout-btn">Đăng xuất</button>
-    </aside>
+<script id="src" type="text/plain">
+const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } = React;
 
-    <main class="main">
-      <header class="topbar">
-        <h2 id="report-title">Chọn một báo cáo</h2>
-        <div id="date-range" class="date-range">
-          <button data-range="today">Hôm nay</button>
-          <button data-range="7d" class="active">7 ngày</button>
-          <button data-range="30d">30 ngày</button>
-          <button data-range="mtd">Từ đầu tháng</button>
+/* =====================================================================
+   PHÊ LA — BÁO CÁO BÁN HÀNG (D05)
+   ---------------------------------------------------------------------
+   Một file, không build. Dữ liệu do script sync/ tự đổ vào Firestore mỗi giờ:
+     d05Daily/{ngày}_{mã cửa hàng} = { date, storeId, storeName, revenue,
+       quantity, bills, updatedAt, items: { [món]: { name, group, quantity, revenue } } }
+
+   Chạy ở localhost (node sync/preview-server.js) thì đọc qua /api/d05 của server
+   trên máy, không cần đăng nhập. Chạy trên Firebase Hosting thì đăng nhập
+   Firebase Auth rồi đọc thẳng Firestore (firestore.rules chặn người lạ).
+===================================================================== */
+
+/* Cấu hình Web App Firebase — không phải bí mật, mọi web app Firebase đều để lộ nó */
+const FB_CFG = {
+  apiKey: "AIzaSyDou4bM03zukkzgDpVUWZJOd2owM5rnd6E",
+  authDomain: "opsphela.firebaseapp.com",
+  projectId: "opsphela",
+  storageBucket: "opsphela.firebasestorage.app",
+  messagingSenderId: "39705637257",
+  appId: "1:39705637257:web:205d8fdad1cb0fbd3a3158",
+};
+const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
+const BRAND = { name: 'Phê La', sub: 'Báo cáo bán hàng', mark: 'PL' };
+
+/* ===================== TIỆN ÍCH ===================== */
+const n0 = (v) => Math.round(Number(v) || 0);
+const money = (v) => n0(v).toLocaleString('vi-VN');
+const short = (v) => {
+  const a = Math.abs(n0(v));
+  if (a >= 1e9) return (v / 1e9).toFixed(2).replace('.', ',') + ' tỷ';
+  if (a >= 1e6) return (v / 1e6).toFixed(1).replace('.', ',') + 'tr';
+  if (a >= 1e3) return Math.round(v / 1e3) + 'k';
+  return String(n0(v));
+};
+const pad2 = (n) => String(n).padStart(2, '0');
+const dKey = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+const dAdd = (k, n) => { const d = new Date(k + 'T00:00:00'); d.setDate(d.getDate() + n); return dKey(d); };
+const dDiff = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 864e5);
+const dShort = (k) => k.slice(8, 10) + '/' + k.slice(5, 7);
+const dFull = (k) => k.slice(8, 10) + '/' + k.slice(5, 7) + '/' + k.slice(0, 4);
+const cls = (...a) => a.filter(Boolean).join(' ');
+const pctDiff = (cur, prev) => (!prev ? null : ((cur - prev) / Math.abs(prev)) * 100);
+/* "Phê La – 145 Trích Sài" -> "145 Trích Sài": tiền tố giống nhau ở cả 92 cửa hàng, bỏ cho gọn */
+const storeShort = (s) => String(s || '').replace(/^Phê La\s*[–-]\s*/i, '');
+
+/* ===================== KHOẢNG NGÀY ===================== */
+function presetRange(k) {
+  const t = dKey(new Date());
+  if (k === 'today') return { from: t, to: t };
+  if (k === 'yday') { const y = dAdd(t, -1); return { from: y, to: y }; }
+  if (k === '7d') return { from: dAdd(t, -6), to: t };
+  if (k === 'month') return { from: t.slice(0, 8) + '01', to: t };
+  return { from: t, to: t };
+}
+const PRESETS = [
+  { k: 'today', l: 'Hôm nay' },
+  { k: 'yday', l: 'Hôm qua' },
+  { k: '7d', l: '7 ngày' },
+  { k: 'month', l: 'Tháng này' },
+];
+
+/* ===================== ĐỌC DỮ LIỆU ===================== */
+let FS = null, AUTH = null;
+function bootCloud() {
+  if (FS) return;
+  firebase.initializeApp(FB_CFG);
+  AUTH = firebase.auth();
+  FS = firebase.firestore();
+}
+async function loadRange(from, to) {
+  if (LOCAL) {
+    const r = await fetch('/api/d05?from=' + from + '&to=' + to);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'HTTP ' + r.status);
+    return r.json();
+  }
+  const snap = await FS.collection('d05Daily').where('date', '>=', from).where('date', '<=', to).get();
+  return snap.docs.map((d) => {
+    const x = d.data();
+    return { id: d.id, ...x, updatedAt: x.updatedAt ? x.updatedAt.toDate().toISOString() : null };
+  });
+}
+
+/* Gộp các doc (cửa hàng × ngày) trong một khoảng thành bộ số cho trang */
+function summarize(docs) {
+  const s = { revenue: 0, bills: 0, quantity: 0, stores: new Set(), byDate: {}, byStore: {}, byItem: {}, byGroup: {}, last: null };
+  for (const d of docs) {
+    s.revenue += d.revenue; s.bills += d.bills; s.quantity += d.quantity;
+    s.stores.add(d.storeId);
+    s.byDate[d.date] = (s.byDate[d.date] || 0) + d.revenue;
+    const st = (s.byStore[d.storeId] ||= { id: d.storeId, name: d.storeName, revenue: 0, bills: 0, quantity: 0 });
+    st.revenue += d.revenue; st.bills += d.bills; st.quantity += d.quantity;
+    for (const it of Object.values(d.items || {})) {
+      const k = it.name || it.code;
+      const x = (s.byItem[k] ||= { name: k, group: it.group, revenue: 0, quantity: 0 });
+      x.revenue += it.revenue; x.quantity += it.quantity;
+      const g = it.group || 'Khác';
+      s.byGroup[g] = (s.byGroup[g] || 0) + it.revenue;
+    }
+    if (d.updatedAt && (!s.last || d.updatedAt > s.last)) s.last = d.updatedAt;
+  }
+  s.storeCount = s.stores.size;
+  s.avgBill = s.bills ? s.revenue / s.bills : 0;
+  return s;
+}
+
+/* ===================== BIỂU TƯỢNG ===================== */
+const mkIc = (d) => ({ size = 18, ...p } = {}) => (
+  <svg className="ic" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}>{d}</svg>
+);
+const Ic = {
+  gauge: mkIc(<><path d="M12 14l4-4" /><circle cx="12" cy="14" r="8" /><path d="M4 14a8 8 0 0116 0" /></>),
+  store: mkIc(<><path d="M4 10v10h16V10" /><path d="M3 10l2-6h14l2 6" /><path d="M3 10a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0" /><path d="M10 20v-5h4v5" /></>),
+  cup: mkIc(<><path d="M6 8h11l-1.3 11.2a2 2 0 01-2 1.8H9.3a2 2 0 01-2-1.8L6 8z" /><path d="M5 8h13" /><path d="M12 8l2-5h3" /></>),
+  bill: mkIc(<><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z" /><path d="M9 8h6M9 12h6" /></>),
+  coin: mkIc(<><circle cx="12" cy="12" r="8.5" /><path d="M14.5 9.2c-.5-.8-1.4-1.2-2.5-1.2-1.5 0-2.6.8-2.6 2s1 1.6 2.6 2 2.6.9 2.6 2.1-1.1 2-2.6 2c-1.1 0-2.1-.5-2.6-1.3" /><path d="M12 6.5v1.5M12 16v1.5" /></>),
+  sync: mkIc(<><path d="M21 12a9 9 0 01-15.5 6.2L3 16" /><path d="M3 12a9 9 0 0115.5-6.2L21 8" /><path d="M21 4v4h-4" /><path d="M3 20v-4h4" /></>),
+  arrowU: mkIc(<><path d="M12 19V5M6 11l6-6 6 6" /></>),
+  arrowD: mkIc(<><path d="M12 5v14M6 13l6 6 6-6" /></>),
+  panel: mkIc(<><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9.5 4v16" /></>),
+};
+
+/* =====================================================================
+   CHUYỂN CẢNH — lấy nguyên cách làm của Cliff House
+===================================================================== */
+function useHlRect(activeKey, boxRef, extraDeps) {
+  const [rect, setRect] = useState(null);
+  const measure = useCallback(() => {
+    const box = boxRef.current;
+    const el = box && box.querySelector('[data-hlk="' + activeKey + '"]');
+    if (!el) { setRect(null); return; }
+    setRect({ top: el.offsetTop, height: el.offsetHeight });
+  }, [activeKey, ...(extraDeps || [])]);
+  useLayoutEffect(measure, [measure]);
+  useEffect(() => {
+    const r = requestAnimationFrame(measure);
+    window.addEventListener('resize', measure);
+    let live = true;
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (live) measure(); });
+    return () => { live = false; cancelAnimationFrame(r); window.removeEventListener('resize', measure); };
+  }, [measure]);
+  return [rect, measure];
+}
+
+function RollSwap({ k, children }) {
+  const [out, setOut] = useState(null);
+  const keyRef = useRef(k);
+  const nodeRef = useRef(children);
+  useLayoutEffect(() => {
+    if (keyRef.current === k) return;
+    setOut({ k: keyRef.current, node: nodeRef.current });
+    keyRef.current = k;
+    const t = setTimeout(() => setOut(null), 750);
+    return () => clearTimeout(t);
+  }, [k]);
+  useEffect(() => { nodeRef.current = children; });
+  return (
+    <div className="roll">
+      {out && <div key={'o' + out.k} className="roll-out" aria-hidden="true">{out.node}</div>}
+      <div key={'i' + k} className={out ? 'roll-in' : ''}>{children}</div>
+    </div>
+  );
+}
+
+/* Số chạy từ 0 lên — rót chữ số mới vào đúng khuôn chuỗi gốc để giữ dấu chấm ngăn nghìn */
+function countUp(root) {
+  if (!root) return;
+  const jobs = [];
+  root.querySelectorAll('.stat .vl').forEach(el => {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = w.nextNode())) {
+      const src = n.nodeValue;
+      if (src.includes(':')) continue;
+      const m = src.match(/\d[\d.,]*\d|\d/);
+      if (!m) continue;
+      const tok = m[0];
+      const target = parseInt(tok.replace(/\D/g, ''), 10);
+      if (!target) continue;
+      const lastSep = Math.max(tok.lastIndexOf('.'), tok.lastIndexOf(','));
+      const tail = lastSep >= 0 ? tok.length - lastSep - 1 : 0;
+      const minDigits = lastSep >= 0 && tail !== 3 ? tail + 1 : 1;
+      jobs.push({ n, src, tok, at: m.index, target, minDigits, last: src });
+    }
+  });
+  if (!jobs.length) return;
+  const fmt = (j, v) => {
+    let ds = String(v).padStart(j.minDigits, '0');
+    let out = '';
+    for (let i = j.tok.length - 1; i >= 0 && ds.length; i--) {
+      const c = j.tok[i];
+      if (/\d/.test(c)) { out = ds[ds.length - 1] + out; ds = ds.slice(0, -1); }
+      else if (ds.length) out = c + out;
+    }
+    return j.src.slice(0, j.at) + out + j.src.slice(j.at + j.tok.length);
+  };
+  const DUR = 1000, t0 = performance.now();
+  const tick = (now) => {
+    const p = Math.min(1, (now - t0) / DUR);
+    const e = 1 - Math.pow(1 - p, 4);
+    let alive = false;
+    jobs.forEach(j => {
+      if (j.dead) return;
+      if (j.n.nodeValue !== j.last) { j.dead = true; return; }
+      j.last = p < 1 ? fmt(j, Math.round(j.target * e)) : j.src;
+      j.n.nodeValue = j.last;
+      if (p < 1) alive = true;
+    });
+    if (alive) requestAnimationFrame(tick);
+  };
+  jobs.forEach(j => { j.last = fmt(j, 0); j.n.nodeValue = j.last; });
+  requestAnimationFrame(tick);
+}
+
+/* ===================== MẢNH GHÉP ===================== */
+function Stat({ label, value, sub, icon, hero }) {
+  return (
+    <div className={cls('stat', hero && 'hero')}>
+      <div className="lb">{icon && <span className="ic-sq">{icon}</span>}{label}</div>
+      <div className="vl">{value}</div>
+      {sub && <div className="dt">{sub}</div>}
+    </div>
+  );
+}
+
+function Delta({ cur, prev, label }) {
+  const p = pctDiff(cur, prev);
+  if (p == null || !isFinite(p)) return <span>chưa có kỳ để so</span>;
+  const up = p >= 0;
+  return (
+    <span>
+      <span className={up ? 'up' : 'dn'}>{up ? <Ic.arrowU size={12} /> : <Ic.arrowD size={12} />} {Math.abs(p).toFixed(1).replace('.', ',')}%</span>
+      {' '}{label}
+    </span>
+  );
+}
+
+function Bars({ rows, empty }) {
+  const top = Math.max(1, ...rows.map(r => Math.abs(r.value)));
+  const tot = rows.reduce((a, r) => a + r.value, 0) || 1;
+  if (!rows.length) return <div className="empty">{empty || 'Chưa có dữ liệu.'}</div>;
+  return (
+    <div>
+      {rows.map((r, i) => (
+        <div className="bar-row" key={r.key || i}>
+          <div className="nm" title={r.label}><span>{r.label}</span></div>
+          <div className="bar-track">
+            <div className="bar-fill" style={{ width: Math.max(2, Math.abs(r.value) / top * 100) + '%', background: r.color || 'var(--brand)' }} />
+          </div>
+          <div className="vl">{money(r.value)}</div>
+          <div className="pc">{(r.pct != null ? r.pct : r.value / tot * 100).toFixed(1).replace('.', ',')}%</div>
         </div>
-      </header>
+      ))}
+    </div>
+  );
+}
 
-      <section id="kpi-row" class="kpi-row"></section>
+/* Biểu đồ cột theo ngày — SVG vẽ tay như Cliff House */
+function Columns({ data, height }) {
+  const H = height || 210, PAD = 26;
+  const hi = Math.max(1, ...data.map(d => d.value));
+  const n = data.length || 1;
+  const bw = 100 / n;
+  const zeroY = H - PAD;
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={'0 0 100 ' + H} preserveAspectRatio="none" style={{ width: '100%', height: H, display: 'block', minWidth: n > 10 ? 560 : 0 }}>
+        <line x1="0" x2="100" y1={zeroY} y2={zeroY} stroke="var(--line)" strokeWidth="0.3" vectorEffect="non-scaling-stroke" />
+        {data.map((d, i) => {
+          const h = d.value / hi * (H - PAD * 2);
+          return <rect key={i} x={i * bw + bw * 0.22} y={zeroY - h} width={bw * 0.56} height={Math.max(1.5, h)} rx="1.4" fill="var(--brand)" />;
+        })}
+      </svg>
+      <div style={{ display: 'flex', minWidth: n > 10 ? 560 : 0 }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10.5, color: 'var(--txt-3)', fontWeight: 500, padding: '5px 0 0' }}>
+            <div>{d.label}</div>
+            <div style={{ fontVariantNumeric: 'tabular-nums', fontSize: 10, marginTop: 1 }}>{short(d.value)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-      <section class="chart-card">
-        <canvas id="main-chart" height="90"></canvas>
-        <p id="chart-empty" class="muted" hidden>Chưa có dữ liệu cho khoảng thời gian này.</p>
-      </section>
+/* ===================== TRANG ===================== */
+function OverviewPage({ data }) {
+  const { cur, prev, range, preset } = data;
+  const [allStores, setAllStores] = useState(false);
+  const cmpLabel = preset === 'yday' ? 'so với hôm kia' : 'so với kỳ trước';
+  /* "Hôm nay" mới chạy được nửa ngày — so với cả ngày hôm qua là so khập khiễng, nên không so */
+  const cmp = preset !== 'today';
+  const sub = (a, b) => (cmp ? <Delta cur={a} prev={b} label={cmpLabel} /> : null);
 
-      <section class="table-card">
-        <table id="data-table">
-          <thead><tr id="table-head"></tr></thead>
-          <tbody id="table-body"></tbody>
+  const stores = Object.values(cur.byStore).sort((a, b) => b.revenue - a.revenue);
+  const storeRows = (allStores ? stores : stores.slice(0, 15)).map(s => ({ key: s.id, label: storeShort(s.name), value: s.revenue, pct: s.revenue / (cur.revenue || 1) * 100 }));
+  const items = Object.values(cur.byItem).filter(x => x.revenue > 0).sort((a, b) => b.revenue - a.revenue).slice(0, 12)
+    .map(x => ({ key: x.name, label: x.name, value: x.revenue, pct: x.revenue / (cur.revenue || 1) * 100 }));
+  const groups = Object.entries(cur.byGroup).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+    .map(([g, v]) => ({ key: g, label: g, value: v, pct: v / (cur.revenue || 1) * 100 }));
+  const days = [];
+  for (let k = range.from; k <= range.to; k = dAdd(k, 1)) days.push({ label: dShort(k), value: cur.byDate[k] || 0 });
+
+  if (!cur.bills) return <div className="empty">Chưa có dữ liệu cho khoảng {dFull(range.from)}{range.from !== range.to ? ' – ' + dFull(range.to) : ''}.</div>;
+
+  return (
+    <>
+      <div className="stats">
+        <Stat hero label="Doanh thu (Tổng tiền)" icon={<Ic.coin size={14} />} value={money(cur.revenue) + ' đ'} sub={sub(cur.revenue, prev.revenue)} />
+        <Stat label="Hoá đơn" icon={<Ic.bill size={14} />} value={money(cur.bills)} sub={sub(cur.bills, prev.bills)} />
+        <Stat label="Giá trị TB / hoá đơn" icon={<Ic.gauge size={14} />} value={money(cur.avgBill) + ' đ'} sub={sub(cur.avgBill, prev.avgBill)} />
+        <Stat label="Số lượng món" icon={<Ic.cup size={14} />} value={money(cur.quantity)} sub={sub(cur.quantity, prev.quantity)} />
+        <Stat label="Cửa hàng có bán" icon={<Ic.store size={14} />} value={money(cur.storeCount)} />
+      </div>
+
+      {days.length > 1 && (
+        <div className="card">
+          <div className="card-h"><div><h3>Doanh thu theo ngày</h3><p>{dFull(range.from)} – {dFull(range.to)}</p></div></div>
+          <div className="chart-wrap"><Columns data={days} /></div>
+        </div>
+      )}
+
+      <div className="card">
+        <div className="card-h">
+          <div><h3>Doanh thu theo cửa hàng</h3><p>{allStores ? 'Tất cả ' + stores.length + ' cửa hàng' : 'Top 15 / ' + stores.length + ' cửa hàng'}</p></div>
+          <div className="sp"><button className="btn sm" onClick={() => setAllStores(v => !v)}>{allStores ? 'Thu gọn' : 'Xem tất cả'}</button></div>
+        </div>
+        <div className="chart-wrap"><Bars rows={storeRows} /></div>
+      </div>
+
+      <div className="rp-grid" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16 }}>
+        <div className="card">
+          <div className="card-h"><div><h3>Món bán chạy</h3><p>Top 12 theo doanh thu</p></div></div>
+          <div className="chart-wrap bars-items"><Bars rows={items} /></div>
+        </div>
+        <div className="card">
+          <div className="card-h"><div><h3>Theo nhóm món</h3><p>Tỉ trọng doanh thu</p></div></div>
+          <div className="chart-wrap bars-tight"><Bars rows={groups} /></div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function StoresPage({ data }) {
+  const { cur } = data;
+  const [sort, setSort] = useState('revenue');
+  const rows = Object.values(cur.byStore).map(s => ({ ...s, avg: s.bills ? s.revenue / s.bills : 0 }))
+    .sort((a, b) => (sort === 'name' ? storeShort(a.name).localeCompare(storeShort(b.name), 'vi') : b[sort] - a[sort]));
+  const Th = ({ k, children, r }) => (
+    <th className={r ? 'r' : ''} style={{ cursor: 'pointer', color: sort === k ? 'var(--txt)' : null }} onClick={() => setSort(k)}>{children}{sort === k ? ' ↓' : ''}</th>
+  );
+  if (!rows.length) return <div className="empty">Chưa có dữ liệu cho khoảng này.</div>;
+  return (
+    <div className="card">
+      <div className="card-h"><div><h3>{rows.length} cửa hàng</h3><p>Bấm tiêu đề cột để sắp xếp</p></div></div>
+      <div className="scroll-x">
+        <table className="tb">
+          <thead><tr>
+            <th>#</th><Th k="name">Cửa hàng</Th><Th k="revenue" r>Doanh thu</Th><Th k="bills" r>Hoá đơn</Th>
+            <Th k="avg" r>TB / hoá đơn</Th><Th k="quantity" r>Số món</Th><th className="r">Tỉ trọng</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((s, i) => (
+              <tr key={s.id}>
+                <td style={{ color: 'var(--txt-3)' }}>{i + 1}</td>
+                <td style={{ fontWeight: 600 }}>{storeShort(s.name)}</td>
+                <td className="r">{money(s.revenue)}</td>
+                <td className="r">{money(s.bills)}</td>
+                <td className="r">{money(s.avg)}</td>
+                <td className="r">{money(s.quantity)}</td>
+                <td className="r">{(s.revenue / (cur.revenue || 1) * 100).toFixed(1).replace('.', ',')}%</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot><tr>
+            <td></td><td>Tổng</td><td className="r">{money(cur.revenue)}</td><td className="r">{money(cur.bills)}</td>
+            <td className="r">{money(cur.avgBill)}</td><td className="r">{money(cur.quantity)}</td><td className="r">100%</td>
+          </tr></tfoot>
         </table>
-      </section>
-    </main>
-  </div>
+      </div>
+    </div>
+  );
+}
 
-  <script type="module" src="app.js"></script>
+const PAGES = [
+  { k: 'overview', l: 'Tổng quan', s: 'Tổng quan', ic: Ic.gauge, g: 'Bán hàng', t: ['Tổng quan bán hàng', 'Doanh thu, hoá đơn, cửa hàng và món — từ báo cáo D05 của Fabi'], C: OverviewPage },
+  { k: 'stores', l: 'Cửa hàng', s: 'Cửa hàng', ic: Ic.store, g: 'Bán hàng', t: ['Bảng cửa hàng', 'Xếp hạng toàn bộ cửa hàng theo khoảng ngày đang chọn'], C: StoresPage },
+];
+
+/* ===================== KHUNG ===================== */
+function Nav({ page, go, user, onOut, min, onToggle }) {
+  const groups = PAGES.reduce((a, p) => (a.includes(p.g) ? a : a.concat(p.g)), []);
+  const scrollRef = useRef(null);
+  const [hl] = useHlRect(page, scrollRef, [min]);
+  return (
+    <nav className="nav">
+      <div className="nav-brand">
+        <div className="logo">{BRAND.mark}</div>
+        <div className="nav-nm"><b>{BRAND.name}</b><small>{BRAND.sub}</small></div>
+        <button className="nav-min-btn" onClick={onToggle} title={min ? 'Mở rộng thanh menu' : 'Thu gọn thanh menu'}>
+          <Ic.panel size={17} />
+        </button>
+      </div>
+      <div className="nav-scroll" ref={scrollRef}>
+        {hl && <i className="nav-hl" style={{ top: hl.top, height: hl.height }} />}
+        {groups.map(g => (
+          <div key={g}>
+            <div className="nav-group">{g}</div>
+            {PAGES.filter(p => p.g === g).map(p => (
+              <button key={p.k} data-hlk={p.k} aria-label={p.l} className={cls('nav-item', page === p.k && 'on')} onClick={() => go(p.k)}>
+                <p.ic /> <span className="nav-lb">{p.l}</span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="nav-foot">
+        <div className="nav-user" title={user.email}>
+          <div className="av">{(user.email || '?')[0].toUpperCase()}</div>
+          <div className="who" style={{ minWidth: 0 }}><b style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.email}</b><small>{LOCAL ? 'Xem trước trên máy' : 'Đã đăng nhập'}</small></div>
+        </div>
+        {!LOCAL && <button className="nav-out" onClick={onOut}>Đăng xuất</button>}
+      </div>
+    </nav>
+  );
+}
+
+const authMsg = (e) => ({
+  'auth/invalid-credential': 'Sai email hoặc mật khẩu.',
+  'auth/wrong-password': 'Sai email hoặc mật khẩu.',
+  'auth/user-not-found': 'Sai email hoặc mật khẩu.',
+  'auth/too-many-requests': 'Thử sai nhiều lần quá, đợi vài phút rồi thử lại.',
+  'auth/network-request-failed': 'Không có mạng.',
+}[e.code] || e.message);
+
+function Login() {
+  const [em, setEm] = useState('');
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true); setErr('');
+    try { await AUTH.signInWithEmailAndPassword(em.trim(), pw); }
+    catch (ex) { setErr(authMsg(ex)); setBusy(false); }
+  };
+  return (
+    <div className="login">
+      <form className="login-card" onSubmit={submit}>
+        <div className="logo">{BRAND.mark}</div>
+        <h2>{BRAND.name}</h2>
+        <p>{BRAND.sub} — đăng nhập để xem số liệu</p>
+        {err && <div className="err">{err}</div>}
+        <div className="fld"><label>Email</label><input className="inp" type="email" value={em} onChange={e => setEm(e.target.value)} autoFocus /></div>
+        <div className="fld"><label>Mật khẩu</label><input className="inp" type="password" value={pw} onChange={e => setPw(e.target.value)} /></div>
+        <button className="btn pri" style={{ width: '100%', justifyContent: 'center', padding: '11px 14px' }} disabled={busy}>{busy ? 'Đang đăng nhập…' : 'Đăng nhập'}</button>
+      </form>
+    </div>
+  );
+}
+
+function Splash({ title, sub, action }) {
+  return (
+    <div className="login">
+      <div className="login-card" style={{ textAlign: 'center' }}>
+        <div className="logo" style={{ margin: '0 auto 16px' }}>{BRAND.mark}</div>
+        <h2>{title}</h2><p>{sub}</p>{action}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [user, setUser] = useState(LOCAL ? { email: 'localhost' } : undefined);
+  const [page, setPage] = useState('overview');
+  const [shown, setShown] = useState('overview');
+  const [leaving, setLeaving] = useState(false);
+  const [navMin, setNavMin] = useState(true);
+  const [preset, setPreset] = useState('today');
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (LOCAL) return;
+    try { bootCloud(); } catch (e) { setErr(e.message); return; }
+    return AUTH.onAuthStateChanged(u => setUser(u || null));
+  }, []);
+
+  /* Tải kỳ đang chọn + kỳ liền trước cùng độ dài (để so %) trong một lần đọc */
+  const load = useCallback(async () => {
+    const range = presetRange(preset);
+    const len = dDiff(range.from, range.to) + 1;
+    const prevRange = { from: dAdd(range.from, -len), to: dAdd(range.from, -1) };
+    setBusy(true); setErr('');
+    try {
+      const docs = await loadRange(prevRange.from, range.to);
+      setData({
+        range, preset,
+        cur: summarize(docs.filter(d => d.date >= range.from)),
+        prev: summarize(docs.filter(d => d.date < range.from)),
+      });
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }, [preset]);
+  useEffect(() => { if (user) load(); }, [user, load]);
+
+  useEffect(() => {
+    if (page === shown) { setLeaving(false); return; }
+    setLeaving(true);
+    const t = setTimeout(() => { setShown(page); setLeaving(false); }, 220);
+    return () => clearTimeout(t);
+  }, [page, shown]);
+
+  useEffect(() => {
+    const t = setTimeout(() => countUp(document.querySelector('.page')), 60);
+    return () => clearTimeout(t);
+  }, [shown, data]);
+
+  if (user === undefined) return <Splash title={BRAND.name} sub="Đang tải…" />;
+  if (!user) return <Login />;
+
+  const cur = PAGES.find(p => p.k === shown);
+  const Body = cur.C;
+  const last = data && data.cur.last ? new Date(data.cur.last) : null;
+
+  return (
+    <div className={cls('shell', navMin && 'nav-min')}>
+      <Nav page={page} go={setPage} user={user} min={navMin} onToggle={() => setNavMin(v => !v)} onOut={() => AUTH.signOut()} />
+      <div className="main">
+        <div className="topbar">
+          <div style={{ minWidth: 0 }}>
+            <RollSwap k={shown}>
+              <h1>{cur.t[0]}</h1>
+              <div className="sub">{cur.t[1]}</div>
+            </RollSwap>
+          </div>
+          <div className="top-right">
+            {LOCAL && <span className="tag t-amber">XEM TRƯỚC</span>}
+            <div className="seg">
+              {PRESETS.map(p => <button key={p.k} className={cls(preset === p.k && 'on')} onClick={() => setPreset(p.k)}>{p.l}</button>)}
+            </div>
+            <button className="top-date" onClick={load} title="Tải lại">
+              {busy ? 'Đang tải…' : last ? 'Cập nhật ' + pad2(last.getHours()) + ':' + pad2(last.getMinutes()) + ' ' + dShort(dKey(last)) : 'Chưa có dữ liệu'}
+            </button>
+          </div>
+        </div>
+        {/* key gồm cả khoảng ngày: đổi kỳ là các thẻ bung lại và số chạy lại từ 0 */}
+        <div key={shown + (data ? data.range.from + data.range.to : '')} className={cls('page', leaving && 'leaving')}>
+          {err ? <div className="banner"><b>Không tải được dữ liệu:</b>&nbsp;{err}</div>
+            : !data ? <div className="empty">Đang tải số liệu…</div>
+              : <Body data={data} />}
+        </div>
+      </div>
+      <div className="mob-bar">
+        {PAGES.map(p => (
+          <button key={p.k} className={cls(page === p.k && 'on')} onClick={() => setPage(p.k)}>
+            <p.ic size={19} /><span>{p.s}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+const boot = document.getElementById('boot');
+if (boot) boot.remove();
+</script>
+
+<script>
+/* ---------------------------------------------------------------
+   Bộ nạp: dịch JSX bằng Babel ngay trong trình duyệt rồi chạy.
+   File này nhỏ nên dịch xong trong khoảng một phần mười giây —
+   không cần npm, không cần build, sửa file là F5 thấy liền.
+   Dịch hỏng thì in lỗi ra giữa màn hình chứ không để trang trắng.
+--------------------------------------------------------------- */
+(function () {
+  var show = function (title, detail) {
+    var b = document.getElementById('boot');
+    if (!b) { console.error(title, detail); return; }
+    b.innerHTML =
+      '<div style="max-width:720px;padding:24px;font-family:system-ui,sans-serif">'
+      + '<div style="font-size:15px;font-weight:700;color:#C4443C;margin-bottom:8px">' + title + '</div>'
+      + '<pre style="white-space:pre-wrap;font-size:12px;color:#5C6572;line-height:1.6;margin:0">'
+      + String(detail).replace(/[<>&]/g, function (c) { return ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]; })
+      + '</pre></div>';
+  };
+  if (!window.React || !window.ReactDOM) return show('Không tải được React', 'Máy đang không có mạng, hoặc cdn.jsdelivr.net bị chặn. App cần mạng ở lần tải đầu.');
+  if (!window.Babel) return show('Không tải được Babel', 'Máy đang không có mạng, hoặc cdn.jsdelivr.net bị chặn.');
+  var src = document.getElementById('src').textContent;
+  var code;
+  try {
+    code = Babel.transform(src, { presets: [['react', { runtime: 'classic' }]], sourceType: 'script' }).code;
+  } catch (e) {
+    return show('Lỗi cú pháp trong mã nguồn', e.message);
+  }
+  try {
+    (0, eval)(code);
+  } catch (e) {
+    return show('Lỗi khi chạy app', (e && e.stack) || e);
+  }
+})();
+</script>
 </body>
 </html>

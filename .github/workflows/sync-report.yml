@@ -3,8 +3,13 @@ name: Sync Fabi reports to Firebase
 on:
   schedule:
     # Phút 15 mỗi giờ, từ 6h15 đến 23h15 giờ VN (cron tính giờ UTC = giờ VN - 7).
+    # Lần 6h15 chốt lại trọn ngày hôm qua, các lần sau lấy ngày hôm nay.
     - cron: '15 0-16,23 * * *'
   workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: write # cho bước "giữ lịch chạy" bên dưới
 
 jobs:
   sync:
@@ -26,3 +31,10 @@ jobs:
           FABI_PASSWORD: ${{ secrets.FABI_PASSWORD }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: node sync-report.js
+      # Repo công khai 60 ngày không có commit thì GitHub tự tắt lịch chạy. Gọi API
+      # "enable" lên chính workflow này để đếm lại từ đầu - không cần tạo commit rác.
+      - name: Giữ lịch chạy
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/sync-report.yml/enable"

@@ -1,0 +1,59 @@
+/**
+ * Server xem trước chạy trên máy (chỉ nghe 127.0.0.1): phục vụ thư mục ../public
+ * và cho trang web đọc dữ liệu Firestore qua /api/d05 bằng service account
+ * trong sync/.env - để xem thử giao diện khi chưa tạo tài khoản đăng nhập.
+ * Bản deploy thật trên Firebase Hosting KHÔNG dùng file này: ở đó trang web
+ * đăng nhập Firebase Auth rồi đọc thẳng Firestore.
+ *
+ *   node preview-server.js      -> http://localhost:5180
+ */
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { loadEnv, initFirebase } = require('./lib');
+
+const PORT = Number(process.env.PORT) || 5180;
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+loadEnv();
+const db = initFirebase();
+
+async function d05(from, to) {
+  const snap = await db.collection('d05Daily').where('date', '>=', from).where('date', '<=', to).get();
+  return snap.docs.map((d) => {
+    const { updatedAt, hash, ...rest } = d.data();
+    return { id: d.id, ...rest, updatedAt: updatedAt ? updatedAt.toDate().toISOString() : null };
+  });
+}
+
+function send(res, code, body, type) {
+  res.writeHead(code, { 'Content-Type': type || 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(body);
+}
+
+http
+  .createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    try {
+      if (url.pathname === '/api/d05') {
+        const from = url.searchParams.get('from');
+        const to = url.searchParams.get('to');
+        if (!DATE_RE.test(from) || !DATE_RE.test(to)) return send(res, 400, '{"error":"from/to phải dạng YYYY-MM-DD"}');
+        return send(res, 200, JSON.stringify(await d05(from, to)));
+      }
+      const file = path.normalize(path.join(PUBLIC_DIR, url.pathname === '/' ? 'index.html' : url.pathname));
+      if (!file.startsWith(PUBLIC_DIR)) return send(res, 403, 'forbidden', 'text/plain');
+      fs.readFile(file, (err, buf) => {
+        // SPA: đường dẫn lạ thì trả index.html, giống rewrite trong firebase.json
+        if (err) return fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (e2, idx) => send(res, e2 ? 404 : 200, idx || 'not found', TYPES['.html']));
+        send(res, 200, buf, TYPES[path.extname(file)] || 'application/octet-stream');
+      });
+    } catch (e) {
+      console.error(e);
+      send(res, 500, JSON.stringify({ error: e.message }));
+    }
+  })
+  .listen(PORT, '127.0.0.1', () => console.log(`Xem trước: http://localhost:${PORT}`));

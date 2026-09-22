@@ -7,8 +7,10 @@
  * báo cáo tất cả cửa hàng -> chờ hộp "Tiến trình xuất báo cáo" xong -> tải file ->
  * gộp ngày × cửa hàng × món -> chỉ ghi những cửa hàng có số liệu thay đổi.
  *
- *   node sync-report.js            chạy thật
+ *   node sync-report.js            chạy thật (ngày hôm nay)
  *   node sync-report.js --dry-run  tải file và in thống kê, KHÔNG ghi Firestore
+ *   node sync-report.js --from 2026-09-01 --to 2026-09-21
+ *                                  nạp bù ngày cũ, mỗi ngày 1 lần xuất (~4-5 phút/ngày)
  *
  * BIẾN MÔI TRƯỜNG (local: file sync/.env; GitHub: Secrets) - KHÔNG ghi thẳng
  * vào code:
@@ -27,6 +29,9 @@ const DOWNLOAD_DIR = path.join(__dirname, 'downloads');
 const MAX_WAIT_MS = 15 * 60 * 1000;
 const POLL_INTERVAL_MS = 5000;
 const DRY_RUN = process.argv.includes('--dry-run');
+const arg = (name) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : null; };
+// Repo công khai: log trên GitHub Actions ai cũng đọc được -> không in doanh thu.
+const PUBLIC_LOG = !!process.env.GITHUB_ACTIONS;
 
 async function main() {
   loadEnv();
@@ -40,23 +45,76 @@ async function main() {
   const context = await browser.newContext({ acceptDownloads: true, timezoneId: 'Asia/Ho_Chi_Minh' });
   const page = await context.newPage();
 
+  // Không truyền --from/--to: ngày hôm nay (giữ bộ lọc mặc định của Fabi). Riêng lần
+  // chạy trước 7h sáng (lịch 6h15) thì chốt lại TRỌN ngày hôm qua - lần chạy cuối
+  // 23h15 chưa có doanh thu bán sau giờ đó. Chỉ ghi phần thay đổi nên không tốn thêm.
+  let days = arg('--from') ? dayList(arg('--from'), arg('--to') || arg('--from')) : [vnHour() < 7 ? vnYesterday() : null];
+  // --skip-done: bỏ các ngày đã có syncState (đã nạp xong) - chạy lại sau khi bị ngắt giữa chừng
+  if (db && days[0] && process.argv.includes('--skip-done')) {
+    const done = await Promise.all(days.map((d) => db.collection('syncState').doc(`d05_${d}`).get()));
+    days = days.filter((d, i) => !done[i].exists);
+    console.log(`Cần nạp ${days.length} ngày: ${days.join(', ') || '(không còn ngày nào)'}`);
+    if (!days.length) return;
+  }
+
   try {
     await login(page);
-    await goToReport(page);
-    const filePath = await exportAndDownload(page);
-    console.log(`Đã tải: ${path.basename(filePath)}`);
+    if (days.length === 1) {
+      await goToReport(page);
+      await syncDay(page, days[0], db);
+      return;
+    }
 
-    const docs = aggregate(readRows(filePath));
-    console.log(summarize(docs));
-    if (DRY_RUN) return;
-
-    const { written, skipped } = await writeChanged(db, docs);
-    console.log(`✅ Ghi ${written} doc thay đổi, bỏ qua ${skipped} doc không đổi.`);
-    fs.unlinkSync(filePath);
+    // Nạp bù nhiều ngày: file do máy chủ Fabi dựng (~5 phút/ngày), nên mở nhiều tab
+    // (chung phiên đăng nhập) cho mỗi tab xuất 1 ngày cùng lúc. Ngày lỗi thì ghi lại,
+    // tab đó mở lại trang báo cáo và lấy ngày kế tiếp.
+    const parallel = Math.max(1, Math.min(Number(arg('--parallel')) || 4, days.length));
+    const queue = [...days];
+    const failed = [];
+    const pages = [page];
+    while (pages.length < parallel) pages.push(await context.newPage());
+    await Promise.all(
+      pages.map(async (p) => {
+        await goToReport(p);
+        for (let day; (day = queue.shift()); ) {
+          try {
+            await syncDay(p, day, db);
+          } catch (err) {
+            console.error(`❌ ${day}: ${err.message.split('\n')[0]}`);
+            failed.push(day);
+            await goToReport(p).catch(() => {});
+          }
+        }
+      })
+    );
+    if (failed.length) throw new Error(`Các ngày lỗi, chạy lại riêng: ${failed.sort().join(', ')}`);
   } finally {
     await browser.close();
   }
 }
+
+// day = null: giữ bộ lọc mặc định (hôm nay).
+async function syncDay(page, day, db) {
+  const tag = day || 'hôm nay';
+  if (day) await pickDay(page, day);
+  const filePath = await exportAndDownload(page, day);
+  const docs = aggregate(readRows(filePath));
+  console.log(`[${tag}] ${path.basename(filePath)}: ${PUBLIC_LOG ? Object.keys(docs).length + ' cửa hàng-ngày' : summarize(docs)}`);
+  if (DRY_RUN) return;
+  const { written, skipped } = await writeChanged(db, docs);
+  console.log(`[${tag}] ✅ Ghi ${written} doc thay đổi, bỏ qua ${skipped} doc không đổi.`);
+  fs.unlinkSync(filePath);
+}
+
+// Chữ lấy từ hộp thoại Fabi có email người xuất - che đi trước khi đưa vào log công khai.
+const noEmail = (t) => String(t).replace(/\s+/g, ' ').replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '***@***');
+
+function vnNow() {
+  // Giờ VN = UTC+7, không có giờ mùa hè
+  return new Date(Date.now() + 7 * 3600 * 1000);
+}
+const vnHour = () => vnNow().getUTCHours();
+const vnYesterday = () => new Date(vnNow().getTime() - 864e5).toISOString().slice(0, 10);
 
 function assertEnv(names) {
   const missing = names.filter((n) => !process.env[n]);
@@ -76,6 +134,54 @@ async function login(page) {
       const msg = await page.locator('form .invalid-feedback, form .alert, .toast').allInnerTexts().catch(() => []);
       throw new Error(`Đăng nhập Fabi thất bại (đang ở ${page.url()}). ${msg.join(' ').trim()}`);
     });
+}
+
+function dayList(from, to) {
+  const out = [];
+  for (let d = new Date(from + 'T00:00:00Z'); d <= new Date(to + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  if (!out.length) throw new Error(`Khoảng ngày không hợp lệ: ${from} → ${to}`);
+  return out;
+}
+
+const vnDate = (day) => day.split('-').reverse().join('/'); // 2026-09-01 -> 01/09/2026
+
+// Ô chọn ngày của D05 là vue2-daterange-picker, tự áp dụng: bấm ngày bắt đầu rồi
+// ngày kết thúc (cùng 1 ngày thì bấm 2 lần) là xong. Có 2 lịch cạnh nhau; bấm mũi
+// tên "‹" của lịch trái cho tới khi 1 trong 2 lịch hiện đúng tháng cần chọn.
+async function pickDay(page, day) {
+  const [y, m, d] = day.split('-').map(Number);
+  await page.locator('.reportrange-text').click();
+  const picker = page.locator('.daterangepicker:visible');
+  await picker.waitFor({ timeout: 10000 });
+
+  let cal = null;
+  for (let i = 0; i < 36 && !cal; i++) {
+    for (const side of ['left', 'right']) {
+      const c = picker.locator(`.drp-calendar.${side}`);
+      // Đọc chữ đang hiện ("Tháng 9") thay vì value của ô chọn tháng - value bản
+      // Fabi đánh số khác thư viện gốc, đọc value là lệch 1 tháng.
+      const shown = await c.evaluate((el) => {
+        const sel = el.querySelector('select.monthselect');
+        const text = sel ? sel.selectedOptions[0]?.textContent : el.querySelector('th.month')?.textContent;
+        return { month: Number((text || '').match(/\d+/)?.[0]), year: Number(el.querySelector('.yearselect')?.value) };
+      });
+      if (shown.year === y && shown.month === m) cal = c;
+    }
+    if (!cal) await picker.locator('.drp-calendar.left .prev').click();
+  }
+  if (!cal) throw new Error(`Không lật được lịch Fabi tới tháng ${m}/${y}`);
+
+  // Bấm theo chữ số đang hiện. KHÔNG dùng thuộc tính data-date của ô: bản Fabi bị lệch
+  // múi giờ, ô hiện "14" lại mang data-date="...-13".
+  const cell = cal.locator('td:not(.off):not(.week)').filter({ hasText: new RegExp(`^\\s*${d}\\s*$`) });
+  await cell.click();
+  await cell.click();
+
+  const want = `${vnDate(day)} - ${vnDate(day)}`;
+  await page.locator('.reportrange-text').filter({ hasText: want }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(2500); // bảng tải lại theo ngày mới
 }
 
 async function goToReport(page) {
@@ -99,7 +205,7 @@ function dialog(page, title) {
 // (92 cửa hàng mất ~4 phút) -> xong thì chính hộp đó có nút "Tải file"
 // (.ep__download). Hộp này chỉ theo dõi lần xuất vừa bấm, nên không lẫn với file
 // người khác trong "Lịch sử xuất".
-async function exportAndDownload(page) {
+async function exportAndDownload(page, day) {
   await page.getByRole('button', { name: /Xuất báo cáo/ }).click();
   await page.getByText('Xuất báo cáo tất cả cửa hàng', { exact: true }).click();
 
@@ -110,7 +216,7 @@ async function exportAndDownload(page) {
     // Chưa gặp với dữ liệu hôm nay; nếu gặp thì chọn xuất mới, không lấy file cũ.
     const again = already.getByRole('button', { name: /Xuất lại|Xuất mới|Tiếp tục xuất/ });
     if (!(await again.count())) {
-      throw new Error(`Gặp hộp "đã xuất trước đó" chưa xử lý: ${(await already.innerText()).replace(/\s+/g, ' ')}`);
+      throw new Error(`Gặp hộp "đã xuất trước đó" chưa xử lý: ${noEmail(await already.innerText())}`);
     }
     await again.first().click();
     await progress.waitFor({ timeout: 60000 });
@@ -120,16 +226,24 @@ async function exportAndDownload(page) {
   const start = Date.now();
   while (!(await downloadBtn.isVisible())) {
     const text = (await progress.innerText().catch(() => '')).replace(/\s+/g, ' ');
-    if (/Đã huỷ|Đã hủy|Lỗi|Thất bại/i.test(text)) throw new Error(`Job xuất bị lỗi/huỷ: ${text.slice(0, 200)}`);
+    if (/Đã huỷ|Đã hủy|Lỗi|Thất bại/i.test(text)) throw new Error(`Job xuất bị lỗi/huỷ: ${noEmail(text).slice(0, 200)}`);
     if (Date.now() - start > MAX_WAIT_MS) {
       throw new Error('Quá thời gian chờ xuất báo cáo - kiểm tra "Lịch sử xuất" trên Fabi.');
     }
     await page.waitForTimeout(POLL_INTERVAL_MS);
   }
 
-  const [download] = await Promise.all([page.waitForEvent('download'), downloadBtn.click()]);
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 120000 }), downloadBtn.click()]);
+  // Tên file dạng d05-01-09-2026-to-01-09-2026.xlsx - chặn trường hợp chọn ngày trượt
+  const tag = day ? day.split('-').reverse().join('-') : null;
+  if (tag && !download.suggestedFilename().includes(`${tag}-to-${tag}`)) {
+    throw new Error(`File tải về (${download.suggestedFilename()}) không khớp ngày ${day}`);
+  }
   const downloadPath = path.join(DOWNLOAD_DIR, download.suggestedFilename());
   await download.saveAs(downloadPath);
+  // Hộp tiến trình không tự đóng - để nguyên thì nó chặn cú bấm chọn ngày kế tiếp.
+  await progress.locator('button.close').click().catch(() => {});
+  await progress.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
   return downloadPath;
 }
 
