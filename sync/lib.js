@@ -37,8 +37,9 @@ const DAYS_COLLECTION = 'd05Days';
 const ITEM_STORES_COLLECTION = 'd05ItemStores';
 const STORES_COLLECTION = 'stores';
 
-// Tới hết ngày này: số trên d05Days lấy từ Excel, không để Fabi ghi đè (xem đầu file).
-const EXCEL_UNTIL = '2026-09-20';
+// Tới hết ngày này: số trên d05Days lấy từ báo cáo nội bộ Excel (histDays), Fabi không
+// ghi đè. Từ 01/2026 trở đi dữ liệu nạp 100% từ Fabi nên mốc dừng ở cuối 2025.
+const EXCEL_UNTIL = '2025-12-31';
 const VAT = 1.08;
 // Nguồn đơn mà Fabi ghi doanh thu ĐÃ trừ hoa hồng app (Grab, Ahamove thì không) -
 // đối chiếu với báo cáo nội bộ ngày 01/09/2026.
