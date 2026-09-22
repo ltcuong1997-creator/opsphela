@@ -1,0 +1,13 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Chỉ người đã đăng nhập (Firebase Authentication) mới đọc được dữ liệu.
+    // Không cho ghi từ phía client - dữ liệu chỉ được ghi bởi script RPA
+    // dùng Admin SDK (service account), luôn bỏ qua rules này.
+    match /{document=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+  }
+}

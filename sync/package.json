@@ -1,0 +1,17 @@
+{
+  "name": "phela-report-sync",
+  "version": "1.0.0",
+  "description": "Đăng nhập Fabi POS CMS, xuất nhiều loại báo cáo, và ghi vào Firestore theo cấu trúc chung (reportTypes / reports) mà webapp phela-dashboard đọc.",
+  "main": "sync-report.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node sync-report.js",
+    "dry-run": "node sync-report.js --dry-run",
+    "import": "node import-file.js"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0",
+    "xlsx": "^0.18.5",
+    "firebase-admin": "^12.5.0"
+  }
+}

@@ -1,0 +1,12 @@
+# Bí mật - KHÔNG BAO GIỜ commit
+*service-account*.json
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+.env
+.env.*
+
+# Sinh ra khi chạy
+node_modules/
+sync/downloads/
+.firebase/
+*.log

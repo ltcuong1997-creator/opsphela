@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phê La · Báo cáo</title>
+<link rel="stylesheet" href="styles.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- MÀN HÌNH ĐĂNG NHẬP -->
+  <div id="login-screen" class="login-screen">
+    <form id="login-form" class="login-card">
+      <h1>Phê La · Báo cáo</h1>
+      <p class="muted">Đăng nhập để xem số liệu</p>
+      <label>Email
+        <input type="email" id="login-email" required autocomplete="username" />
+      </label>
+      <label>Mật khẩu
+        <input type="password" id="login-password" required autocomplete="current-password" />
+      </label>
+      <button type="submit">Đăng nhập</button>
+      <p id="login-error" class="error-text" hidden></p>
+    </form>
+  </div>
+
+  <!-- KHUNG DASHBOARD -->
+  <div id="app-shell" class="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="brand">Phê La</span>
+        <span class="muted small">Báo cáo</span>
+      </div>
+      <nav id="report-nav" class="report-nav">
+        <!-- danh sách loại báo cáo (report types) được nạp động từ Firestore -->
+      </nav>
+      <button id="logout-btn" class="logout-btn">Đăng xuất</button>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h2 id="report-title">Chọn một báo cáo</h2>
+        <div id="date-range" class="date-range">
+          <button data-range="today">Hôm nay</button>
+          <button data-range="7d" class="active">7 ngày</button>
+          <button data-range="30d">30 ngày</button>
+          <button data-range="mtd">Từ đầu tháng</button>
+        </div>
+      </header>
+
+      <section id="kpi-row" class="kpi-row"></section>
+
+      <section class="chart-card">
+        <canvas id="main-chart" height="90"></canvas>
+        <p id="chart-empty" class="muted" hidden>Chưa có dữ liệu cho khoảng thời gian này.</p>
+      </section>
+
+      <section class="table-card">
+        <table id="data-table">
+          <thead><tr id="table-head"></tr></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

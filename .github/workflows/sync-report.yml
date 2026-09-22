@@ -1,0 +1,28 @@
+name: Sync Fabi reports to Firebase
+
+on:
+  schedule:
+    # Phút 15 mỗi giờ, từ 6h15 đến 23h15 giờ VN (cron tính giờ UTC = giờ VN - 7).
+    - cron: '15 0-16,23 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sync
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - name: Đồng bộ báo cáo
+        env:
+          FABI_EMAIL: ${{ secrets.FABI_EMAIL }}
+          FABI_PASSWORD: ${{ secrets.FABI_PASSWORD }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node sync-report.js
