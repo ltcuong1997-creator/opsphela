@@ -8,6 +8,8 @@
  *     { date, storeId, storeName, revenue, quantity, bills, hash, updatedAt,
  *       items: { [itemKey]: { code, name, group, quantity, revenue } } }
  *   syncState/d05_{date}         { hashes: { [docId]: hash } }
+ *   d05ItemStores/{date}         số bán từng món × từng cửa hàng trong ngày, cho bảng
+ *     "Món theo chi nhánh" trên web (1 doc/ngày thay vì ~90 doc d05Daily)
  *   d05Days/{date}               tóm tắt cả ngày cho trang web: tổng ngày, tổng từng
  *     cửa hàng (stores{}), tổng từng món cả chuỗi (items{}) - web đọc 1 doc/ngày
  *     thay vì ~90 doc nặng, xem 1 tháng chỉ tốn ~30 lượt đọc.
@@ -32,6 +34,7 @@ const path = require('path');
 const COLLECTION = 'd05Daily';
 const STATE_COLLECTION = 'syncState';
 const DAYS_COLLECTION = 'd05Days';
+const ITEM_STORES_COLLECTION = 'd05ItemStores';
 const STORES_COLLECTION = 'stores';
 
 // Tới hết ngày này: số trên d05Days lấy từ Excel, không để Fabi ghi đè (xem đầu file).
@@ -320,6 +323,11 @@ async function writeChanged(db, docs) {
           ...summary,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        // Món × cửa hàng: chỉ Fabi mới có, không dính mốc Excel nên ngày nào cũng ghi
+        batch.set(db.collection(ITEM_STORES_COLLECTION).doc(date), {
+          ...itemStoresDoc(date, allDay),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
       }
       await batch.commit();
     }
@@ -379,6 +387,27 @@ function toNet(d) {
   }
   const scale = (map) => Object.fromEntries(Object.entries(map || {}).map(([k, v]) => [k, { ...v, revenue: Math.round(v.revenue * f) }]));
   return { ...d, revenue: Math.round(net), revenueGross: gross, sources, payments: scale(d.payments), areas: scale(d.areas) };
+}
+
+// Số bán từng món theo từng cửa hàng trong 1 ngày -> d05ItemStores/{date}.
+// { date, items, stores, payload } - payload là CHUỖI JSON:
+//   { [mã món]: { name, group, stores: { [mã CH]: [số lượng, doanh thu] } } }
+// Để chuỗi thay vì map lồng vì Firestore đánh chỉ mục từng khoá của map: ~170 món × ~80
+// cửa hàng vượt giới hạn chỉ mục của 1 document (lỗi "too many index entries").
+// Doanh thu món là số gốc Fabi (gồm VAT), giống items trong d05Days.
+function itemStoresDoc(date, dayDocs) {
+  const items = {};
+  const stores = new Set();
+  for (const d of Object.values(dayDocs)) {
+    for (const [k, it] of Object.entries(d.items || {})) {
+      const x = (items[k] ||= { name: it.name, group: it.group || null, stores: {} });
+      const st = (x.stores[d.storeId] ||= [0, 0]);
+      st[0] += it.quantity || 0;
+      st[1] += it.revenue || 0;
+      stores.add(d.storeId);
+    }
+  }
+  return { date, items: Object.keys(items).length, stores: stores.size, payload: JSON.stringify(items) };
 }
 
 // Gộp các doc cửa hàng của 1 ngày thành doc tóm tắt d05Days/{date}.
@@ -455,4 +484,4 @@ async function loadStoreIds(db) {
   return map;
 }
 
-module.exports = { EXCEL_UNTIL, ET_KEYS, toNet, daySummary, loadStoreIds, ALIASES, loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize, rebuildDaySummaries, COL };
+module.exports = { EXCEL_UNTIL, ET_KEYS, toNet, daySummary, itemStoresDoc, loadStoreIds, ALIASES, loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize, rebuildDaySummaries, COL };

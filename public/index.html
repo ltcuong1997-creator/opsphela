@@ -470,6 +470,12 @@ table.tb.tb-compact tr.row-off td.nm{text-decoration:line-through}
 .lst-add{background:var(--canvas);width:22px;height:22px}
 .lst-add:hover{background:var(--brand-wash);color:var(--brand)}
 .lst-new{width:150px;flex:0 0 auto}
+/* Chọn món: danh sách nút nhỏ, bấm để bật/tắt */
+.itm-pick{display:flex;flex-wrap:wrap;gap:6px;padding:12px 18px;max-height:196px;overflow:auto;border-bottom:1px solid var(--line-soft)}
+.itm{padding:4px 10px;border-radius:99px;background:var(--canvas);font-size:12px;font-weight:600;color:var(--txt-2);
+  border:1px solid transparent;transition:background .16s,color .16s,border-color .16s}
+.itm:hover{border-color:var(--line)}
+.itm.on{background:var(--brand-wash);border-color:var(--brand);color:var(--brand)}
 .upl-box{border:1.5px dashed var(--line);border-radius:14px;padding:28px 20px;text-align:center;cursor:pointer;
   transition:border-color .16s,background .16s}
 .upl-box:hover{border-color:var(--brand);background:var(--brand-wash)}
@@ -644,9 +650,10 @@ const money = (v) => n0(v).toLocaleString('vi-VN');
    do sync/lib.js tính cho ngày Fabi, còn ngày lấy từ Excel thì đã là số đó. Không quy đổi
    lần nữa ở đây - giữ tên hàm để các chỗ gọi không phải đổi. */
 const adjRevenue = (rev) => rev || 0;
-/* AOV theo định nghĩa của Phê La: doanh thu TB mỗi chi nhánh mỗi ngày
-   = tổng doanh thu / số ngày có doanh thu / số chi nhánh có doanh thu. */
-const aovOf = (revenue, nDays, nStores) => (nDays && nStores ? revenue / nDays / nStores : 0);
+/* AOV = doanh thu / số hoá đơn (TC). ADS = doanh thu trung bình mỗi chi nhánh mỗi ngày
+   = doanh thu / số ngày CÓ doanh thu / số chi nhánh CÓ doanh thu. */
+const aovOf = (revenue, bills) => (bills ? revenue / bills : 0);
+const adsOf = (revenue, nDays, nStores) => (nDays && nStores ? revenue / nDays / nStores : 0);
 const toNum = (v) => {
   if (typeof v === 'number') return v;
   if (!v) return 0;
@@ -726,6 +733,21 @@ async function loadDays(from, to) {
     const x = d.data();
     return { ...x, updatedAt: x.updatedAt ? x.updatedAt.toDate().toISOString() : null };
   });
+}
+
+/* Số bán từng món × từng cửa hàng: đọc d05ItemStores/{ngày} (1 doc/ngày, do sync dựng sẵn).
+   Nội dung nằm ở trường `payload` dạng chuỗi JSON: { [mã món]: { name, stores: { [mã CH]:
+   [số lượng, doanh thu] } } } - để chuỗi thay vì map lồng vì Firestore đánh chỉ mục từng
+   khoá của map, map to sẽ vượt giới hạn chỉ mục của 1 document.
+   Chỉ gọi khi người dùng bấm xem. */
+async function loadItemStores(from, to) {
+  if (LOCAL) {
+    const r = await fetch('/api/itemstores?from=' + from + '&to=' + to);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'HTTP ' + r.status);
+    return r.json();
+  }
+  const snap = await FS.collection('d05ItemStores').where('date', '>=', from).where('date', '<=', to).get();
+  return snap.docs.map((d) => d.data());
 }
 
 /* Master data cửa hàng (Region/City/AM) và target doanh thu - không phụ thuộc khoảng ngày,
@@ -1247,16 +1269,14 @@ function sliceOf(s, meta, f) {
   const revenue = adjRevenue(t.raw, t.commission);
   const nDays = Object.keys(byDate).filter((d) => byDate[d].revenue > 0).length;
   const nStores = stores.filter((st) => st.revenue > 0).length;
-  const nET = stores.filter((st) => st.etRev > 0).length, nD = stores.filter((st) => st.dRev > 0).length;
   return {
     keep, stores, byDate, revenue, tc: t.bills, quantity: t.quantity, commission: t.commission, nDays, nStores,
-    aov: aovOf(revenue, nDays, nStores),
-    ads: nDays ? revenue / nDays : 0,
-    adtc: nDays ? t.bills / nDays : 0,
-    /* ET / D cùng công thức, trên doanh thu của nhóm nguồn đó và số chi nhánh có bán nhóm đó.
-       Chưa có dữ liệu nguồn đơn thì để null -> ô chỉ số hiện "—", không đoán bừa. */
-    aovET: nET ? aovOf(t.etRev, nDays, nET) : null,
-    aovD: nD ? aovOf(t.dRev, nDays, nD) : null,
+    aov: aovOf(revenue, t.bills),
+    ads: adsOf(revenue, nDays, nStores),
+    adtc: adsOf(t.bills, nDays, stores.filter((st) => st.bills > 0).length),
+    /* Chưa có dữ liệu nguồn đơn thì để null -> ô chỉ số hiện "—", không đoán bừa. */
+    aovET: t.etBills ? aovOf(t.etRev, t.etBills) : null,
+    aovD: t.dBills ? aovOf(t.dRev, t.dBills) : null,
   };
 }
 
@@ -1265,11 +1285,11 @@ function sliceOf(s, meta, f) {
    nDays dùng chung cho mọi nhóm (số ngày có dữ liệu của cả lát cắt) để các cột ADS
    so được với nhau; chia theo số ngày riêng của từng nhóm thì nhóm mới mở vài ngày
    sẽ vọt lên đầu bảng dù đóng góp rất nhỏ. */
-function aggDim(stores, meta, keyOf, targetById, nDays, daysInMonth) {
+function aggDim(stores, meta, keyOf, targetById, nDays, rangeDays) {
   const agg = {};
   const slot = (k) => (agg[k] ||= {
     name: k, raw: 0, commission: 0, bills: 0, quantity: 0,
-    etRev: 0, etBills: 0, dRev: 0, dBills: 0, target: 0, stores: 0, sRev: 0, sET: 0, sD: 0,
+    etRev: 0, etBills: 0, dRev: 0, dBills: 0, target: 0, stores: 0, sRev: 0, sET: 0, sD: 0, tStores: 0,
   });
   for (const st of stores) {
     const x = slot(keyOf(meta[st.id] || {}) || UNASSIGNED);
@@ -1282,17 +1302,19 @@ function aggDim(stores, meta, keyOf, targetById, nDays, daysInMonth) {
     if (st.dRev > 0) x.sD++;
   }
   for (const [id, tg] of Object.entries(targetById || {})) {
-    slot(keyOf(meta[id] || {}) || UNASSIGNED).target += tg;
+    const x = slot(keyOf(meta[id] || {}) || UNASSIGNED);
+    x.target += tg;
+    if (tg > 0) x.tStores++;
   }
   return Object.values(agg).map((x) => {
     const revenue = adjRevenue(x.raw, x.commission);
     return {
       ...x, revenue,
-      ads: nDays ? revenue / nDays : 0,
-      adsTarget: daysInMonth ? x.target / daysInMonth : 0,
-      aov: aovOf(revenue, nDays, x.sRev),
-      aovET: x.sET ? aovOf(x.etRev, nDays, x.sET) : null,
-      aovD: x.sD ? aovOf(x.dRev, nDays, x.sD) : null,
+      ads: adsOf(revenue, nDays, x.sRev),
+      adsTarget: rangeDays && x.tStores ? x.target / rangeDays / x.tStores : 0,
+      aov: aovOf(revenue, x.bills),
+      aovET: x.etBills ? aovOf(x.etRev, x.etBills) : null,
+      aovD: x.dBills ? aovOf(x.dRev, x.dBills) : null,
     };
   });
 }
@@ -1304,12 +1326,9 @@ function monthlyAov(days, keep) {
   const m = {};
   for (const d of days || []) {
     const mk = +d.date.slice(5, 7);
-    const x = (m[mk] ||= { raw: 0, commission: 0, bills: 0, etRev: 0, etBills: 0, dRev: 0, dBills: 0, days: new Set(), sRev: new Set(), sET: new Set(), sD: new Set() });
+    const x = (m[mk] ||= { raw: 0, commission: 0, bills: 0, etRev: 0, etBills: 0, dRev: 0, dBills: 0 });
     for (const [id, st] of Object.entries(d.stores || {})) {
       if (keep && !keep(id)) continue;
-      if (st.revenue > 0) { x.days.add(d.date); x.sRev.add(id); }
-      if (st.et && st.et.revenue > 0) x.sET.add(id);
-      if (st.dlv && st.dlv.revenue > 0) x.sD.add(id);
       x.raw += st.revenue; x.commission += st.commission || 0; x.bills += st.bills;
       x.etRev += (st.et && st.et.revenue) || 0; x.etBills += (st.et && st.et.bills) || 0;
       x.dRev += (st.dlv && st.dlv.revenue) || 0; x.dBills += (st.dlv && st.dlv.bills) || 0;
@@ -1317,13 +1336,13 @@ function monthlyAov(days, keep) {
   }
   return Array.from({ length: 12 }, (_, i) => {
     const x = m[i + 1];
-    if (!x || !x.raw) return { month: i + 1, aov: null, aovET: null, aovD: null, revenue: 0, bills: 0 };
-    const revenue = adjRevenue(x.raw, x.commission), nDays = x.days.size;
+    if (!x || !x.bills) return { month: i + 1, aov: null, aovET: null, aovD: null, revenue: 0, bills: 0 };
+    const revenue = adjRevenue(x.raw, x.commission);
     return {
       month: i + 1, revenue, bills: x.bills,
-      aov: aovOf(revenue, nDays, x.sRev.size),
-      aovET: x.sET.size ? aovOf(x.etRev, nDays, x.sET.size) : null,
-      aovD: x.sD.size ? aovOf(x.dRev, nDays, x.sD.size) : null,
+      aov: aovOf(revenue, x.bills),
+      aovET: x.etBills ? aovOf(x.etRev, x.etBills) : null,
+      aovD: x.dBills ? aovOf(x.dRev, x.dBills) : null,
     };
   });
 }
@@ -1344,7 +1363,7 @@ function Spark({ values, color }) {
 }
 
 function Kpi({ label, value, cur, prev, hint, spark, sparkColor, hero, sm, tint, deltaLabel, noPrevHint }) {
-  const sub = cur != null && prev != null ? <Delta cur={cur} prev={prev} label={deltaLabel || 'vs tháng trước'} />
+  const sub = cur != null && prev != null ? <Delta cur={cur} prev={prev} label={deltaLabel || 'vs kỳ trước'} />
     : cur != null ? <span className="mute">{noPrevHint || 'chưa có tháng trước để so'}</span> : hint;
   return (
     <div className={cls('kpi', hero && 'hero', sm && 'sm', tint && (tint === true ? 'tint' : 'tint-' + tint))}>
@@ -1510,6 +1529,103 @@ function FilterChips({ filter, set, meta }) {
   );
 }
 
+/* Chọn vài món -> xem số bán của chính các món đó ở từng chi nhánh trong kỳ.
+   Số món chỉ có ở ngày nạp từ Fabi (file Excel nội bộ không có món) nên thẻ ghi rõ
+   đang có số của bao nhiêu ngày trong kỳ. */
+function ItemStoreCard({ range, itemNames, keysByName, meta, keep, dayCount }) {
+  const [sel, setSel] = useState([]);
+  const [q, setQ] = useState('');
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [days, setDays] = useState(0);
+
+  const shown = useMemo(() => {
+    const k = noAccent(q.trim());
+    return itemNames.filter((n) => !k || noAccent(n).includes(k)).slice(0, 60);
+  }, [itemNames, q]);
+  const toggle = (n) => setSel((x) => (x.includes(n) ? x.filter((y) => y !== n) : [...x, n]));
+
+  const run = async () => {
+    setBusy(true); setErr('');
+    try {
+      const docs = await loadItemStores(range.from, range.to);
+      const byStore = {}, dset = new Set();
+      for (const d of docs) {
+        const items = d.payload ? JSON.parse(d.payload) : (d.items || {});
+        for (const n of sel) {
+          for (const k of keysByName[n] || []) {
+            const it = items[k];
+            if (!it) continue;
+            for (const [id, v] of Object.entries(it.stores || {})) {
+              if (!keep(id)) continue;
+              const [qty, rev] = Array.isArray(v) ? v : [v.quantity, v.revenue];
+              dset.add(d.date);
+              const st = (byStore[id] ||= { id, name: storeShort((meta[id] || {}).storeName || id), qty: 0, revenue: 0, per: {} });
+              const p = (st.per[n] ||= { qty: 0, revenue: 0 });
+              p.qty += qty || 0; p.revenue += rev || 0;
+              st.qty += qty || 0; st.revenue += rev || 0;
+            }
+          }
+        }
+      }
+      setDays(dset.size);
+      setRows(Object.values(byStore).filter((r) => r.qty).sort((a, b) => b.qty - a.qty));
+    } catch (e) { setErr(e.message); setRows(null); }
+    setBusy(false);
+  };
+
+  const total = (rows || []).reduce((a, r) => a + r.qty, 0);
+  return (
+    <div className="card">
+      <div className="card-h">
+        <div>
+          <h3>Món theo chi nhánh</h3>
+          <p>Chọn món bất kỳ để xem số bán của món đó ở từng chi nhánh trong kỳ{dayCount ? ' · có số món ' + dayCount + ' ngày' : ''}</p>
+        </div>
+        <div className="sp">
+          <button className="btn sm pri" disabled={!sel.length || busy} onClick={run}>{busy ? 'Đang đọc…' : 'Xem số bán'}</button>
+        </div>
+      </div>
+      <div className="flt">
+        <input className="inp grow" placeholder="Tìm món…" value={q} onChange={(e) => setQ(e.target.value)} />
+        {sel.length ? <button className="btn sm" onClick={() => { setSel([]); setRows(null); }}>Bỏ chọn ({sel.length})</button> : null}
+        <span className="hint">Món bán qua app (Excel) không có chi tiết món — chỉ những ngày nạp từ Fabi mới có số.</span>
+      </div>
+      <div className="itm-pick">
+        {shown.map((n) => (
+          <button key={n} className={cls('itm', sel.includes(n) && 'on')} onClick={() => toggle(n)}>{n}</button>
+        ))}
+        {!shown.length ? <span className="hint">Không có món nào khớp.</span> : null}
+      </div>
+      {err ? <div className="banner">{err}</div> : null}
+      {rows && (
+        rows.length ? (
+          <div className="scroll-x">
+            <table className="tb">
+              <thead>
+                <tr><th>Chi nhánh</th>{sel.map((n) => <th key={n} className="r">{n}</th>)}<th className="r">Tổng SL</th><th className="r">Doanh thu</th></tr>
+              </thead>
+              <tbody>{rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.name}</td>
+                  {sel.map((n) => <td key={n} className="r">{r.per[n] ? money(r.per[n].qty) : '—'}</td>)}
+                  <td className="r">{money(r.qty)}</td>
+                  <td className="r">{money(r.revenue)} đ</td>
+                </tr>
+              ))}</tbody>
+              <tfoot><tr><td>{rows.length} chi nhánh · {days} ngày có số</td>
+                {sel.map((n) => <td key={n} className="r">{money(rows.reduce((a, r) => a + (r.per[n] ? r.per[n].qty : 0), 0))}</td>)}
+                <td className="r">{money(total)}</td>
+                <td className="r">{money(rows.reduce((a, r) => a + r.revenue, 0))} đ</td></tr></tfoot>
+            </table>
+          </div>
+        ) : <div className="empty">Kỳ này chưa có số món cho các món đã chọn.</div>
+      )}
+    </div>
+  );
+}
+
 function OverviewPage({ data }) {
   const { cur, prev, range, storesMeta, targets } = data;
   const [filter, setFilter] = useState({});
@@ -1526,22 +1642,36 @@ function OverviewPage({ data }) {
   const prevSlice = useMemo(() => sliceOf(prev, meta, filter), [prev, meta, filter]);
   const geoFilter = !!(filter.region || filter.prov || filter.city || filter.am || filter.store);
 
-  /* ---- Target tháng đang chọn, gộp theo cửa hàng / miền / tỉnh ---- */
-  const periodY = +range.from.slice(0, 4), periodM = +range.from.slice(5, 7);
+  /* ---- Target của kỳ đang chọn ----
+     Kỳ có thể là vài ngày hoặc vắt qua nhiều tháng, nên target mỗi tháng được chia theo
+     số ngày của tháng đó nằm trong kỳ: target tháng × (số ngày trong kỳ / số ngày cả tháng). */
+  const rangeDays = dDiff(range.from, range.to) + 1;
+  const monthShare = useMemo(() => {
+    const share = {};
+    for (let k = monthStart(range.from); k <= range.to; k = dAdd(monthEnd(k), 1)) {
+      const full = dDiff(monthStart(k), monthEnd(k)) + 1;
+      const from = k > range.from ? k : range.from;
+      const to = monthEnd(k) < range.to ? monthEnd(k) : range.to;
+      if (to < from) continue;
+      share[k.slice(0, 7)] = (dDiff(from, to) + 1) / full;
+    }
+    return share;
+  }, [range.from, range.to]);
   const targetByStore = useMemo(() => {
     const m = {};
     for (const t of targets || []) {
-      if (+t.year !== periodY || +t.month !== periodM) continue;
-      m[t.storeId] = (m[t.storeId] || 0) + (t.target || 0);
+      const p = monthShare[t.year + '-' + pad2(t.month)];
+      if (!p) continue;
+      m[t.storeId] = (m[t.storeId] || 0) + (t.target || 0) * p;
     }
     return m;
-  }, [targets, periodY, periodM]);
+  }, [targets, monthShare]);
   const targetTotal = useMemo(() => Object.entries(targetByStore)
     .filter(([id]) => slice.keep(id)).reduce((a, [, v]) => a + v, 0), [targetByStore, slice]);
 
-  const daysInMonth = dDiff(range.from, monthEnd(range.from)) + 1;
   const achievePct = targetTotal ? slice.revenue / targetTotal * 100 : null;
-  const fcPct = targetTotal ? (slice.ads * daysInMonth) / targetTotal * 100 : null;
+  /* FC = ADS × số chi nhánh đang có doanh thu × số ngày của kỳ (dự báo tới hết kỳ đã chọn) */
+  const fcPct = targetTotal ? (slice.ads * slice.nStores * rangeDays) / targetTotal * 100 : null;
 
   /* ---- Chuỗi ngày trong tháng ---- */
   const dayKeys = useMemo(() => {
@@ -1550,7 +1680,7 @@ function OverviewPage({ data }) {
     return out;
   }, [range.from, range.to]);
   const dayRevenue = dayKeys.map((k) => (slice.byDate[k] ? slice.byDate[k].revenue : 0));
-  const dayTarget = targetTotal ? targetTotal / daysInMonth : 0;
+  const dayTarget = targetTotal ? targetTotal / rangeDays : 0;
 
   const toggle = useCallback((key, value) => setFilter((f) => ({ ...f, [key]: f[key] === value ? null : value })), []);
   const onRegionClick = useCallback((p) => toggle('region', p.name), [toggle]);
@@ -1657,7 +1787,7 @@ function OverviewPage({ data }) {
   const cumOption = useMemo(() => {
     let acc = 0;
     const cum = dayRevenue.map((v) => (acc += v));
-    const pace = dayKeys.map((_, i) => (targetTotal ? targetTotal / daysInMonth * (i + 1) : 0));
+    const pace = dayKeys.map((_, i) => (targetTotal ? targetTotal / rangeDays * (i + 1) : 0));
     return {
       ...ANIM,
       grid: { left: 52, right: 18, top: 28, bottom: 30 },
@@ -1673,7 +1803,7 @@ function OverviewPage({ data }) {
           lineStyle: { width: 2, type: 'dashed', color: INK.axis }, data: pace }] : []),
       ],
     };
-  }, [dayKeys, dayRevenue, targetTotal, daysInMonth]);
+  }, [dayKeys, dayRevenue, targetTotal, rangeDays]);
 
   /* ---- Cơ cấu theo miền ---- */
   const regionRows = useMemo(() => {
@@ -1743,6 +1873,22 @@ function OverviewPage({ data }) {
       data: payRows.map((r) => Math.round(r.revenue)),
     }],
   }), [payRows]);
+
+  /* Tên món -> các khoá món trong d05Days (mã món), và số ngày trong kỳ có dữ liệu món */
+  const itemNames = useMemo(() => Object.values(cur.byItem || {})
+    .sort((a, b) => b.revenue - a.revenue).map((x) => x.name), [cur]);
+  const keysByName = useMemo(() => {
+    const m = {};
+    for (const d of Object.values(cur.days || {})) {
+      for (const [k, it] of Object.entries(d.items || {})) {
+        const set = (m[it.name] ||= []);
+        if (!set.includes(k)) set.push(k);
+      }
+    }
+    return m;
+  }, [cur]);
+  const itemDayCount = useMemo(() => Object.values(cur.days || {})
+    .filter((d) => d.items && Object.keys(d.items).length).length, [cur]);
 
   /* ---- Cây: nhóm món -> món (toàn chuỗi) ---- */
   const treeData = useMemo(() => {
@@ -1843,7 +1989,7 @@ function OverviewPage({ data }) {
   const dayEntries = useMemo(() => dayKeys.map((k, i) => ({ k, v: dayRevenue[i] })).filter((d) => slice.byDate[d.k]), [dayKeys, dayRevenue, slice]);
   const peakDay = dayEntries.length ? dayEntries.reduce((a, b) => (b.v > a.v ? b : a)) : null;
   const slowDay = dayEntries.length > 1 ? dayEntries.reduce((a, b) => (b.v < a.v ? b : a)) : null;
-  const paceExpected = targetTotal ? targetTotal / daysInMonth * dayKeys.length : null;
+  const paceExpected = targetTotal ? targetTotal / rangeDays * dayKeys.length : null;
   const pacePct = paceExpected ? (slice.revenue - paceExpected) / paceExpected * 100 : null;
   const top5Share = useMemo(() => {
     if (!slice.revenue) return null;
@@ -1854,14 +2000,15 @@ function OverviewPage({ data }) {
   const activeStores = sliceAll.stores.length;
 
   /* =================== MỤC ADS ===================
-     ADS target = target tháng chia đều số ngày trong tháng; so thẳng với ADS thực tế
-     để biết mỗi ngày đang chạy thiếu/thừa bao nhiêu so với mốc phải đạt. */
+     ADS target = target của kỳ chia đều cho số ngày và số chi nhánh có target, nên so
+     thẳng được với ADS thực tế (doanh thu mỗi chi nhánh mỗi ngày). */
   const targetInSlice = useMemo(() => {
     const m = {};
     for (const [id, tg] of Object.entries(targetByStore)) if (slice.keep(id)) m[id] = tg;
     return m;
   }, [targetByStore, slice]);
-  const adsTarget = daysInMonth ? targetTotal / daysInMonth : 0;
+  const targetStores = useMemo(() => Object.values(targetInSlice).filter((v) => v > 0).length, [targetInSlice]);
+  const adsTarget = rangeDays && targetStores ? targetTotal / rangeDays / targetStores : 0;
   const adsGapPct = adsTarget ? (slice.ads - adsTarget) / adsTarget * 100 : null;
 
   /* Gộp theo 3 chiều quản trị. Kỳ trước gộp cùng cách để mỗi dòng đều so được. */
@@ -1872,15 +2019,15 @@ function OverviewPage({ data }) {
       { k: 'am', label: 'AM', lower: 'AM', keyOf: (m) => m.am || UNASSIGNED, width: 92, limit: 10 },
     ];
     return defs.map((d) => {
-      const prevRows = aggDim(prevSlice.stores, meta, d.keyOf, null, prevSlice.nDays, daysInMonth);
+      const prevRows = aggDim(prevSlice.stores, meta, d.keyOf, null, prevSlice.nDays, rangeDays);
       const prevBy = {};
       for (const r of prevRows) prevBy[r.name] = r;
-      const rows = aggDim(slice.stores, meta, d.keyOf, targetInSlice, slice.nDays, daysInMonth)
+      const rows = aggDim(slice.stores, meta, d.keyOf, targetInSlice, slice.nDays, rangeDays)
         .map((r) => ({ ...r, prev: prevBy[r.name] || null }))
         .sort((a, b) => b.revenue - a.revenue);
       return { ...d, rows: d.limit ? rows.slice(0, d.limit) : rows };
     });
-  }, [slice, prevSlice, meta, targetInSlice, daysInMonth]);
+  }, [slice, prevSlice, meta, targetInSlice, rangeDays]);
   const dimClick = { region: 'region', city: 'city', am: 'am' };
 
   /* =================== MỤC AOV ===================
@@ -1930,7 +2077,7 @@ function OverviewPage({ data }) {
           const r = list[ps[0].dataIndex];
           const d = r.prev && r.prev.aov ? pctDiff(r.aov, r.prev.aov) : null;
           return `<b>${r.name}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value ? money(p.value) + ' đ' : '—'}</b>`).join('<br/>')
-            + (d == null ? '' : `<br/>AOV chung ${d >= 0 ? '+' : ''}${pct1(d)} vs tháng trước`);
+            + (d == null ? '' : `<br/>AOV chung ${d >= 0 ? '+' : ''}${pct1(d)} vs kỳ trước`);
         },
       },
       legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 11, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
@@ -1966,7 +2113,7 @@ function OverviewPage({ data }) {
     valueName: 'Doanh thu', baseName: 'Target', labelWidth: 84,
   }), [cityRows]);
 
-  if (!cur.bills) return <div className="empty">Chưa có dữ liệu cho tháng {MONTHS[periodM - 1]} {periodY}.</div>;
+  if (!cur.bills) return <div className="empty">Chưa có dữ liệu cho {rangeLabel(range)}.</div>;
 
   const money2 = (v) => money(v) + ' đ';
   const swatch = (c) => <i className="sw" style={{ background: c }} />;
@@ -1974,7 +2121,7 @@ function OverviewPage({ data }) {
   /* Bảng số dùng chung cho 3 thẻ ADS (miền / tỉnh / AM): mỗi dòng đều có cột so tháng trước. */
   const adsTable = (d) => (
     <table>
-      <thead><tr><th>{d.label}</th><th className="r">ADS</th><th className="r">ADS target</th><th className="r">Đạt</th><th className="r">vs tháng trước</th></tr></thead>
+      <thead><tr><th>{d.label}</th><th className="r">ADS</th><th className="r">ADS target</th><th className="r">Đạt</th><th className="r">vs kỳ trước</th></tr></thead>
       <tbody>{d.rows.map((r) => {
         const g = r.prev && r.prev.ads ? pctDiff(r.ads, r.prev.ads) : null;
         return (
@@ -1992,7 +2139,7 @@ function OverviewPage({ data }) {
 
   const aovTable = (d) => (
     <table>
-      <thead><tr><th>{d.label}</th><th className="r">AOV</th><th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">vs tháng trước</th></tr></thead>
+      <thead><tr><th>{d.label}</th><th className="r">AOV</th><th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">vs kỳ trước</th></tr></thead>
       <tbody>{d.rows.map((r) => {
         const g = r.prev && r.prev.aov ? pctDiff(r.aov, r.prev.aov) : null;
         return (
@@ -2017,14 +2164,14 @@ function OverviewPage({ data }) {
       <FilterChips filter={filter} set={setFilter} meta={meta} />
 
       {/* ============ 1. TỔNG QUAN ============ */}
-      <Section n="1" title="Tổng quan tháng" sub={`${MONTHS[periodM - 1]} ${periodY} · ${dFull(range.from)} – ${dFull(range.to)}`} />
+      <Section n="1" title="Tổng quan kỳ" sub={`${rangeLabel(range)} · ${rangeDays} ngày`} />
 
       <div className="kpi-row">
         <Kpi hero label="Revenue" value={unit(slice.revenue)} cur={slice.revenue} prev={prevSlice.revenue}
           spark={dayRevenue} sparkColor="#F0C979" />
         <Kpi label="TC · hoá đơn" value={unit(slice.tc)} cur={slice.tc} prev={prevSlice.tc}
           spark={dayKeys.map((k) => (slice.byDate[k] ? slice.byDate[k].bills : 0))} sparkColor={SERIES[0]} />
-        <Kpi label="AOV · TB/chi nhánh/ngày" value={unit(slice.aov)} cur={slice.aov} prev={prevSlice.aov}
+        <Kpi label="AOV · TB/hoá đơn" value={unit(slice.aov)} cur={slice.aov} prev={prevSlice.aov}
           spark={dayKeys.map((k) => { const d = slice.byDate[k]; return d && d.bills ? d.revenue / d.bills : 0; })} sparkColor={SERIES[2]} />
         <TargetTile target={targetTotal} achieve={achievePct} fc={fcPct} />
       </div>
@@ -2072,7 +2219,7 @@ function OverviewPage({ data }) {
                 <tbody>{(() => { let acc = 0; return dayKeys.map((k, i) => {
                   acc += slice.byDate[k] ? slice.byDate[k].revenue : 0;
                   return <tr key={k}><td>{dFull(k)}</td><td className="r">{money2(acc)}</td>
-                    <td className="r">{targetTotal ? money2(targetTotal / daysInMonth * (i + 1)) : '—'}</td></tr>;
+                    <td className="r">{targetTotal ? money2(targetTotal / rangeDays * (i + 1)) : '—'}</td></tr>;
                 }); })()}</tbody>
               </table>
             )}
@@ -2081,18 +2228,18 @@ function OverviewPage({ data }) {
       </div>
 
       {/* ============ 2. ADS ============ */}
-      <Section n="2" title="ADS — doanh thu trung bình mỗi ngày"
-        sub="ADS thực tế so với ADS target (target tháng chia đều số ngày), bóc theo miền · tỉnh/TP · AM" />
+      <Section n="2" title="ADS — doanh thu TB mỗi chi nhánh mỗi ngày"
+        sub="ADS thực tế so với ADS target (target của kỳ chia cho số ngày và số chi nhánh có target), bóc theo miền · tỉnh/TP · AM" />
 
       <div className="kpi-row">
         <Kpi tint label="ADS · thực tế" value={unit(slice.ads)} cur={slice.ads} prev={prevSlice.ads}
           spark={dayRevenue} sparkColor={BRAND_HEX} />
-        <Kpi label="ADS target · target/ngày" value={adsTarget ? unit(adsTarget) : '—'}
-          hint={adsTarget ? `${unit(targetTotal)} đ chia ${daysInMonth} ngày` : 'chưa nạp target tháng này'} />
+        <Kpi label="ADS target · target/CH/ngày" value={adsTarget ? unit(adsTarget) : '—'}
+          hint={adsTarget ? `${unit(targetTotal)} đ chia ${rangeDays} ngày × ${targetStores} chi nhánh` : 'chưa nạp target cho kỳ này'} />
         <Kpi tint={adsGapPct == null ? null : adsGapPct >= 0 ? 'green' : null} label="Chênh lệch ADS vs target"
           value={adsGapPct == null ? '—' : (adsGapPct >= 0 ? '+' : '') + pct1(adsGapPct)}
-          hint={adsGapPct == null ? 'cần target để so' : (adsGapPct >= 0 ? 'đang vượt mốc mỗi ngày' : `còn thiếu ${unit(adsTarget - slice.ads)} đ/ngày`)} />
-        <Kpi label="ADTC · bill TB/ngày" value={unit(slice.adtc)} cur={slice.adtc} prev={prevSlice.adtc}
+          hint={adsGapPct == null ? 'cần target để so' : (adsGapPct >= 0 ? 'đang vượt mốc mỗi ngày' : `còn thiếu ${unit(adsTarget - slice.ads)} đ/chi nhánh/ngày`)} />
+        <Kpi label="ADTC · TC TB/chi nhánh/ngày" value={unit(slice.adtc)} cur={slice.adtc} prev={prevSlice.adtc}
           spark={dayKeys.map((k) => (slice.byDate[k] ? slice.byDate[k].bills : 0))} sparkColor={SERIES[0]} />
       </div>
 
@@ -2116,7 +2263,7 @@ function OverviewPage({ data }) {
       </div>
 
       {/* ============ 3. AOV ============ */}
-      <Section n="3" title="AOV — doanh thu TB mỗi chi nhánh mỗi ngày"
+      <Section n="3" title="AOV — giá trị trung bình mỗi hoá đơn"
         sub="AOV chung / tại chỗ + mang về (ET) / giao hàng (D) — theo 12 tháng và theo từng miền · tỉnh/TP · AM" />
 
       <div className="kpi-row">
@@ -2132,7 +2279,7 @@ function OverviewPage({ data }) {
       <div className="dash">
         <div className="c8">
           <ChartCard
-            title={`Ba đường AOV theo tháng — năm ${periodY}`}
+            title={`Ba đường AOV theo tháng — năm ${+range.from.slice(0, 4)}`}
             sub={geoFilter ? 'Đang vẽ theo đúng lát cắt đang lọc' : 'Toàn chuỗi · mỗi điểm là một tháng'}
             height={330}
             option={aovYearOption}
@@ -2290,6 +2437,13 @@ function OverviewPage({ data }) {
         </div>
       </div>
 
+      <div className="dash">
+        <div className="c12">
+          <ItemStoreCard range={range} itemNames={itemNames} keysByName={keysByName} meta={meta}
+            keep={slice.keep} dayCount={itemDayCount} />
+        </div>
+      </div>
+
       {/* ============ 6. CHI NHÁNH ============ */}
       <Section n="6" title="Chi nhánh" sub="Bản đồ, xếp hạng doanh thu và nhóm tăng trưởng — tất cả đều so với tháng trước" />
 
@@ -2367,14 +2521,51 @@ function WeeklyPage({ data }) {
   const curByDay = dayKeys.map((k) => (cur.byDate[k] || 0));
   const prevByDay = prevDayKeys.map((k) => (prev.byDate[k] || 0));
 
-  const weekRevenue = adjRevenue(cur.revenue, cur.commission);
-  const prevWeekRevenue = adjRevenue(prev.revenue, prev.commission);
-  const activeOf = (s) => [
-    Object.values(s.days || {}).filter((d) => d.revenue > 0).length,
-    Object.values(s.byStore || {}).filter((st) => st.revenue > 0).length,
-  ];
-  const weekAov = aovOf(weekRevenue, ...activeOf(cur));
-  const prevWeekAov = aovOf(prevWeekRevenue, ...activeOf(prev));
+  /* Dùng chung sliceOf/aggDim với trang Summary nên mọi chỉ số định nghĩa y hệt nhau */
+  const slice = useMemo(() => sliceOf(cur, meta, {}), [cur, meta]);
+  const prevSlice = useMemo(() => sliceOf(prev, meta, {}), [prev, meta]);
+  const weekRevenue = slice.revenue;
+  const prevWeekRevenue = prevSlice.revenue;
+
+  /* Bóc theo miền / tỉnh-TP / AM: mỗi nhóm đủ Doanh thu, TC, AOV, AOV-ET, AOV-D, ADS
+     và % so với cùng nhóm tuần trước. */
+  const dims = useMemo(() => {
+    const defs = [
+      { k: 'region', label: 'Miền', lower: 'miền', keyOf: (m) => m.region || UNASSIGNED },
+      { k: 'city', label: 'Tỉnh/TP', lower: 'tỉnh/TP', keyOf: (m) => m.city || UNASSIGNED },
+      { k: 'am', label: 'AM', lower: 'AM', keyOf: (m) => m.am || UNASSIGNED },
+    ];
+    return defs.map((d) => {
+      const prevBy = {};
+      for (const r of aggDim(prevSlice.stores, meta, d.keyOf, null, prevSlice.nDays, 7)) prevBy[r.name] = r;
+      return {
+        ...d,
+        rows: aggDim(slice.stores, meta, d.keyOf, null, slice.nDays, 7)
+          .map((r) => ({ ...r, prev: prevBy[r.name] || null }))
+          .sort((a, b) => b.revenue - a.revenue),
+      };
+    });
+  }, [slice, prevSlice, meta]);
+
+  const billsByDay = dayKeys.map((k) => (cur.days[k] ? cur.days[k].bills : 0));
+  /* Cột TC + đường AOV trên 2 trục: ngày đông khách chưa chắc là ngày doanh thu cao */
+  const tcAovOption = useMemo(() => ({
+    ...ANIM,
+    grid: { left: 52, right: 58, top: 30, bottom: 30 },
+    tooltip: { ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } } },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: { type: 'category', data: dayKeys.map(wdOf), ...AXIS_STYLE, splitLine: { show: false } },
+    yAxis: [
+      { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+      { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+    ],
+    series: [
+      { name: 'TC', type: 'bar', barMaxWidth: 34, itemStyle: { color: SERIES[0], borderRadius: [4, 4, 0, 0] }, data: billsByDay },
+      { name: 'AOV', type: 'line', yAxisIndex: 1, smooth: true, symbolSize: 7,
+        lineStyle: { width: 2.4, color: SERIES[2] }, itemStyle: { color: SERIES[2] },
+        data: dayKeys.map((k, i) => (billsByDay[i] ? Math.round(curByDay[i] / billsByDay[i]) : null)) },
+    ],
+  }), [dayKeys, curByDay, billsByDay]);
 
   const wdOption = useMemo(() => ({
     ...ANIM,
@@ -2411,16 +2602,68 @@ function WeeklyPage({ data }) {
     .map((r) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: r.growth })), [storeRows]);
 
   const money2 = (v) => money(v) + ' đ';
+  const wk = { deltaLabel: 'vs tuần trước', noPrevHint: 'chưa có tuần trước để so' };
 
   if (!cur.bills && !prev.bills) return <div className="empty">Chưa có dữ liệu cho tuần {dFull(range.from)} – {dFull(range.to)}.</div>;
 
   return (
     <>
       <div className="kpi-row">
-        <Kpi hero label="Revenue tuần" value={unit(weekRevenue)} cur={weekRevenue} prev={prevWeekRevenue} spark={curByDay} sparkColor="#D9A23F" deltaLabel="vs tuần trước" noPrevHint="chưa có tuần trước để so" />
-        <Kpi label="TC · hoá đơn" value={unit(cur.bills)} cur={cur.bills} prev={prev.bills} deltaLabel="vs tuần trước" noPrevHint="chưa có tuần trước để so" />
-        <Kpi label="AOV · TB/chi nhánh/ngày" value={unit(weekAov)} cur={weekAov} prev={prevWeekAov} deltaLabel="vs tuần trước" noPrevHint="chưa có tuần trước để so" />
-        <Kpi label="Chi nhánh có doanh thu" value={String(storeRows.length)} cur={storeRows.length} prev={Object.keys(prev.byStore || {}).length} deltaLabel="vs tuần trước" noPrevHint="chưa có tuần trước để so" />
+        <Kpi hero label="Revenue tuần" value={unit(weekRevenue)} cur={weekRevenue} prev={prevWeekRevenue} spark={curByDay} sparkColor="#D9A23F" {...wk} />
+        <Kpi label="TC · hoá đơn" value={unit(slice.tc)} cur={slice.tc} prev={prevSlice.tc} {...wk} />
+        <Kpi tint="blue" label="AOV · TB/hoá đơn" value={unit(slice.aov)} cur={slice.aov} prev={prevSlice.aov} {...wk} />
+        <Kpi label="ADS · TB/chi nhánh/ngày" value={unit(slice.ads)} cur={slice.ads} prev={prevSlice.ads} {...wk} />
+      </div>
+      <div className="kpi-row">
+        <Kpi label="AOV-ET · tại chỗ + mang về" value={slice.aovET == null ? '—' : unit(slice.aovET)}
+          cur={slice.aovET} prev={prevSlice.aovET} hint={slice.aovET == null ? 'tuần này chưa có dữ liệu nguồn đơn' : null} {...wk} />
+        <Kpi label="AOV-D · nguồn giao hàng" value={slice.aovD == null ? '—' : unit(slice.aovD)}
+          cur={slice.aovD} prev={prevSlice.aovD} hint={slice.aovD == null ? 'tuần này chưa có dữ liệu nguồn đơn' : null} {...wk} />
+        <Kpi label="Chi nhánh có doanh thu" value={String(slice.nStores)} cur={slice.nStores} prev={prevSlice.nStores} {...wk} />
+        <Kpi label="Ngày có doanh thu" value={String(slice.nDays)} cur={slice.nDays} prev={prevSlice.nDays} {...wk} />
+      </div>
+
+      <div className="dash">
+        {dims.map((d) => (
+          <div className="c12" key={'wk-' + d.k}>
+            <ChartCard
+              title={'Theo ' + d.lower}
+              sub="Doanh thu tuần này so với tuần trước · bấm Bảng số để xem đủ TC / AOV / ADS"
+              height={barCardH(d.rows.length, 34, 240, 420)}
+              option={cmpBarOption(d.rows, {
+                value: (r) => r.revenue, base: (r) => (r.prev ? r.prev.revenue : 0),
+                valueName: 'Tuần này', baseName: 'Tuần trước', labelWidth: d.k === 'region' ? 78 : 96,
+              })}
+              empty={!d.rows.length ? 'Chưa có dữ liệu.' : null}
+              table={(
+                <table>
+                  <thead><tr><th>{d.label}</th><th className="r">CH</th><th className="r">Doanh thu</th><th className="r">vs tuần trước</th>
+                    <th className="r">TC</th><th className="r">vs tuần trước</th><th className="r">AOV</th>
+                    <th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">ADS</th></tr></thead>
+                  <tbody>{d.rows.map((r) => {
+                    const gR = r.prev && r.prev.revenue ? pctDiff(r.revenue, r.prev.revenue) : null;
+                    const gT = r.prev && r.prev.bills ? pctDiff(r.bills, r.prev.bills) : null;
+                    const delta = (g) => <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td>;
+                    return (
+                      <tr key={r.name}>
+                        <td>{r.name}</td>
+                        <td className="r">{r.sRev}</td>
+                        <td className="r">{money2(r.revenue)}</td>
+                        {delta(gR)}
+                        <td className="r">{money(r.bills)}</td>
+                        {delta(gT)}
+                        <td className="r">{money2(r.aov)}</td>
+                        <td className="r">{r.aovET == null ? '—' : money2(r.aovET)}</td>
+                        <td className="r">{r.aovD == null ? '—' : money2(r.aovD)}</td>
+                        <td className="r">{money2(r.ads)}</td>
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
+              )}
+            />
+          </div>
+        ))}
       </div>
 
       <div className="dash">
@@ -2442,6 +2685,24 @@ function WeeklyPage({ data }) {
           />
         </div>
 
+        <div className="c6">
+          <ChartCard
+            title="TC và AOV theo thứ" sub="Cột là số hoá đơn, đường là AOV — thấy ngay ngày đông khách mà giá trị đơn thấp"
+            height={320}
+            option={tcAovOption}
+            table={(
+              <table>
+                <thead><tr><th>Thứ</th><th>Ngày</th><th className="r">TC</th><th className="r">AOV</th><th className="r">Doanh thu</th></tr></thead>
+                <tbody>{dayKeys.map((k, i) => (
+                  <tr key={k}><td>{wdOf(k)}</td><td>{dFull(k)}</td>
+                    <td className="r">{money(billsByDay[i])}</td>
+                    <td className="r">{billsByDay[i] ? money2(curByDay[i] / billsByDay[i]) : '—'}</td>
+                    <td className="r">{money2(curByDay[i])}</td></tr>
+                ))}</tbody>
+              </table>
+            )}
+          />
+        </div>
         <div className="c6">
           <Leaderboard title="Top chi nhánh trong tuần" sub="Doanh thu cao nhất · bấm để xem" rows={topWeekStores} />
         </div>
@@ -2960,7 +3221,7 @@ function TargetPage({ data }) {
 }
 
 const PAGES = [
-  { k: 'overview', l: 'Summary', s: 'Summary', ic: Ic.gauge, g: 'Bán hàng', usesMonth: true, t: ['Summary', ''], C: OverviewPage },
+  { k: 'overview', l: 'Summary', s: 'Summary', ic: Ic.gauge, g: 'Bán hàng', usesRange: true, usesYear: true, t: ['Summary', ''], C: OverviewPage },
   { k: 'weekly', l: 'Weekly Report', s: 'Weekly', ic: Ic.cal, g: 'Bán hàng', usesWeek: true, t: ['Weekly Report', ''], C: WeeklyPage },
   { k: 'stores', l: 'Cửa hàng', s: 'Cửa hàng', ic: Ic.store, g: 'Bán hàng', usesRange: true, t: ['Bảng cửa hàng', 'Xếp hạng toàn bộ cửa hàng theo khoảng ngày đang chọn'], C: StoresPage },
   { k: 'data', l: 'Data', s: 'Data', ic: Ic.table, g: 'Dữ liệu', usesRange: true, t: ['Data', 'Đã nạp tới đâu, ngày nào thiếu — và bảng từng dòng để đối soát'], C: DataPage },
@@ -3155,7 +3416,7 @@ function App() {
      lỗi thì chỉ thẻ AOV năm trống, các thẻ khác vẫn chạy. */
   const yearOf = +range.from.slice(0, 4);
   useEffect(() => {
-    if (!user || !PAGES.find(x => x.k === page && x.usesMonth)) return;
+    if (!user || !PAGES.find(x => x.k === page && x.usesYear)) return;
     if (yearData.year === yearOf && yearData.days) return;
     let live = true;
     setYearData({ year: yearOf, days: null, busy: true });
@@ -3210,17 +3471,13 @@ function App() {
     setMetaBusy(false);
   }, [loadMeta]);
 
-  /* Đổi qua trang Summary mà range đang lệch tháng (vì trang trước dùng DateRangePicker tuỳ ý)
-     thì tự chỉnh lại về nguyên tháng chứa range.from, cho MonthYearPicker luôn khớp dữ liệu. */
+  /* Trang theo tuần: nắn range về đúng tuần (Thứ 2 -> Chủ nhật) cho WeekPicker khớp dữ liệu. */
   useEffect(() => {
     const p = PAGES.find(x => x.k === page);
-    if (p && p.usesMonth && range.from !== monthStart(range.from)) {
-      const from = monthStart(range.from);
-      const end = monthEnd(from);
-      setRange({ from, to: end > today() ? today() : end });
-    }
-    if (p && p.usesWeek && range.from !== weekStart(range.from)) {
-      const from = weekStart(today());
+    // Sang trang tuần mà range đang là khoảng tuỳ ý (trang khác dùng DateRangePicker)
+    // thì nắn về trọn tuần chứa ngày bắt đầu, cho WeekPicker và dữ liệu khớp nhau.
+    if (p && p.usesWeek && (range.from !== weekStart(range.from) || range.to !== weekEnd(range.from))) {
+      const from = weekStart(range.from);
       setRange({ from, to: weekEnd(from) });
     }
   }, [page]);

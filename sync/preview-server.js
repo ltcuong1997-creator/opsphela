@@ -40,6 +40,25 @@ async function days(from, to) {
   });
 }
 
+// Số bán từng món × từng cửa hàng (d05ItemStores) - bảng "Món theo chi nhánh"
+async function itemStores(from, to) {
+  const snap = await db.collection('d05ItemStores').where('date', '>=', from).where('date', '<=', to).get();
+  return snap.docs.map((d) => {
+    const { updatedAt, ...rest } = d.data();
+    return rest;
+  });
+}
+
+// Đọc toàn bộ, xem trước trang "Chi nhánh" / "Target" - không ghi được ở chế độ local
+// (không có Firebase Auth thật để qua firestore.rules), chỉ để xem trước giao diện.
+async function readAll(collection) {
+  const snap = await db.collection(collection).get();
+  return snap.docs.map((d) => {
+    const { updatedAt, ...rest } = d.data();
+    return { id: d.id, ...rest, updatedAt: updatedAt ? updatedAt.toDate().toISOString() : null };
+  });
+}
+
 function send(res, code, body, type) {
   res.writeHead(code, { 'Content-Type': type || 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(body);
@@ -55,6 +74,14 @@ http
         if (!DATE_RE.test(from) || !DATE_RE.test(to)) return send(res, 400, '{"error":"from/to phải dạng YYYY-MM-DD"}');
         return send(res, 200, JSON.stringify(url.pathname === '/api/days' ? await days(from, to) : await d05(from, to)));
       }
+      if (url.pathname === '/api/itemstores') {
+        const from = url.searchParams.get('from');
+        const to = url.searchParams.get('to');
+        if (!DATE_RE.test(from) || !DATE_RE.test(to)) return send(res, 400, '{"error":"from/to phải dạng YYYY-MM-DD"}');
+        return send(res, 200, JSON.stringify(await itemStores(from, to)));
+      }
+      if (url.pathname === '/api/stores') return send(res, 200, JSON.stringify(await readAll('stores')));
+      if (url.pathname === '/api/targets') return send(res, 200, JSON.stringify(await readAll('targets')));
       const file = path.normalize(path.join(PUBLIC_DIR, url.pathname === '/' ? 'index.html' : url.pathname));
       if (!file.startsWith(PUBLIC_DIR)) return send(res, 403, 'forbidden', 'text/plain');
       fs.readFile(file, (err, buf) => {
