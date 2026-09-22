@@ -1375,7 +1375,7 @@ function Kpi({ label, value, cur, prev, hint, spark, sparkColor, hero, sm, tint,
   );
 }
 
-function TargetTile({ target, achieve, fc }) {
+function TargetTile({ target, achieve, fc, label }) {
   const option = useMemo(() => ({
     ...ANIM,
     series: [{
@@ -1392,7 +1392,7 @@ function TargetTile({ target, achieve, fc }) {
   }), [achieve]);
   return (
     <div className="kpi">
-      <div className="lb">Mục tiêu tháng</div>
+      <div className="lb">{label || 'Mục tiêu kỳ'}</div>
       <div className="tgt">
         <div className="rows">
           <div className="tgt-row"><b>TARGET</b><span>{target ? unit(target) : '—'}</span></div>
@@ -1624,6 +1624,37 @@ function ItemStoreCard({ range, itemNames, keysByName, meta, keep, dayCount }) {
       )}
     </div>
   );
+}
+
+/* Ba chuỗi AOV (chung / ET / D) cạnh nhau cho mỗi nhóm - dùng chung cho Summary và Weekly.
+   cmpLabel: nhãn kỳ so sánh hiện trong tooltip ("kỳ trước" / "tuần trước"). */
+function aovDimOption(rows, labelWidth, cmpLabel) {
+  const list = [...rows].reverse();
+  const s = (name, key, color) => ({
+    name, type: 'bar', barMaxWidth: 13, barGap: '20%', barCategoryGap: '34%',
+    itemStyle: { color, borderRadius: [0, 3, 3, 0] },
+    data: list.map((r) => (r[key] == null ? 0 : Math.round(r[key]))),
+  });
+  return {
+    ...ANIM,
+    grid: { left: labelWidth + 12, right: 56, top: 24, bottom: 6 },
+    tooltip: {
+      ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
+      formatter: (ps) => {
+        const r = list[ps[0].dataIndex];
+        const d = r.prev && r.prev.aov ? pctDiff(r.aov, r.prev.aov) : null;
+        return `<b>${r.name}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value ? money(p.value) + ' đ' : '—'}</b>`).join('<br/>')
+          + (d == null ? '' : `<br/>AOV chung ${d >= 0 ? '+' : ''}${pct1(d)} vs ${cmpLabel}`);
+      },
+    },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 11, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: { type: 'value', show: false },
+    yAxis: {
+      type: 'category', data: list.map((r) => r.name), ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false },
+      axisLabel: { ...AXIS_STYLE.axisLabel, color: INK.txt, fontSize: 11, width: labelWidth, overflow: 'truncate' },
+    },
+    series: [s('AOV chung', 'aov', BRAND_HEX), s('AOV-ET', 'aovET', SERIES[0]), s('AOV-D', 'aovD', SERIES[2])],
+  };
 }
 
 function OverviewPage({ data }) {
@@ -2061,35 +2092,6 @@ function OverviewPage({ data }) {
   }, [yearRows]);
 
   /* AOV theo chiều: 3 cột cạnh nhau cho mỗi nhóm - thấy ngay nhóm nào sống bằng đơn giao hàng. */
-  const aovDimOption = (rows, labelWidth) => {
-    const list = [...rows].reverse();
-    const s = (name, key, color) => ({
-      name, type: 'bar', barMaxWidth: 13, barGap: '20%', barCategoryGap: '34%',
-      itemStyle: { color, borderRadius: [0, 3, 3, 0] },
-      data: list.map((r) => (r[key] == null ? 0 : Math.round(r[key]))),
-    });
-    return {
-      ...ANIM,
-      grid: { left: labelWidth + 12, right: 56, top: 24, bottom: 6 },
-      tooltip: {
-        ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
-        formatter: (ps) => {
-          const r = list[ps[0].dataIndex];
-          const d = r.prev && r.prev.aov ? pctDiff(r.aov, r.prev.aov) : null;
-          return `<b>${r.name}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value ? money(p.value) + ' đ' : '—'}</b>`).join('<br/>')
-            + (d == null ? '' : `<br/>AOV chung ${d >= 0 ? '+' : ''}${pct1(d)} vs kỳ trước`);
-        },
-      },
-      legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 11, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
-      xAxis: { type: 'value', show: false },
-      yAxis: {
-        type: 'category', data: list.map((r) => r.name), ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false },
-        axisLabel: { ...AXIS_STYLE.axisLabel, color: INK.txt, fontSize: 11, width: labelWidth, overflow: 'truncate' },
-      },
-      series: [s('AOV chung', 'aov', BRAND_HEX), s('AOV-ET', 'aovET', SERIES[0]), s('AOV-D', 'aovD', SERIES[2])],
-    };
-  };
-
   /* Tỉ trọng hoá đơn giao hàng - chỉ số "sức khoẻ kênh" đi kèm cụm AOV. */
   const dShare = slice.tc ? (slice.stores.reduce((a, st) => a + (st.dBills || 0), 0) / slice.tc) * 100 : null;
   const prevDShare = prevSlice.tc ? (prevSlice.stores.reduce((a, st) => a + (st.dBills || 0), 0) / prevSlice.tc) * 100 : null;
@@ -2302,7 +2304,7 @@ function OverviewPage({ data }) {
         <div className="c4">
           <ChartCard
             title="AOV theo miền" sub="Ba chuỗi cạnh nhau · bấm để lọc" height={330}
-            option={aovDimOption(dimRegion.rows, 78)}
+            option={aovDimOption(dimRegion.rows, 78, 'kỳ trước')}
             onClick={(p) => toggle('region', dimRegion.rows[dimRegion.rows.length - 1 - p.dataIndex].name)}
             empty={!dimRegion.rows.length ? 'Chưa có dữ liệu.' : null}
             table={aovTable(dimRegion)}
@@ -2312,7 +2314,7 @@ function OverviewPage({ data }) {
         <div className="c6">
           <ChartCard
             title="AOV theo tỉnh/TP" sub="Top 10 theo doanh thu · bấm để lọc" height={aovCardH}
-            option={aovDimOption(dimCity.rows, 92)}
+            option={aovDimOption(dimCity.rows, 92, 'kỳ trước')}
             onClick={(p) => toggle('city', dimCity.rows[dimCity.rows.length - 1 - p.dataIndex].name)}
             empty={!dimCity.rows.length ? 'Chưa có dữ liệu.' : null}
             table={aovTable(dimCity)}
@@ -2322,7 +2324,7 @@ function OverviewPage({ data }) {
         <div className="c6">
           <ChartCard
             title="AOV theo AM" sub="Top 10 theo doanh thu · bấm để lọc" height={aovCardH}
-            option={aovDimOption(dimAm.rows, 92)}
+            option={aovDimOption(dimAm.rows, 92, 'kỳ trước')}
             onClick={(p) => toggle('am', dimAm.rows[dimAm.rows.length - 1 - p.dataIndex].name)}
             empty={!dimAm.rows.length ? 'Chưa có dữ liệu.' : null}
             table={aovTable(dimAm)}
@@ -2509,49 +2511,99 @@ function OverviewPage({ data }) {
    không lệch ngày trong tuần như so nguyên khoảng ngày tuỳ ý.
 ===================================================================== */
 function WeeklyPage({ data }) {
-  const { cur, prev, range, storesMeta } = data;
+  const { cur, prev, range, storesMeta, targets } = data;
   const meta = useMemo(() => {
     const m = {};
-    for (const s of storesMeta || []) m[s.id] = s;
+    for (const st of storesMeta || []) m[st.id] = st;
     return m;
   }, [storesMeta]);
 
-  const dayKeys = useMemo(() => { const out = []; for (let k = range.from; k <= range.to; k = dAdd(k, 1)) out.push(k); return out; }, [range]);
-  const prevDayKeys = useMemo(() => dayKeys.map((k) => dAdd(k, -7)), [dayKeys]);
-  const curByDay = dayKeys.map((k) => (cur.byDate[k] || 0));
-  const prevByDay = prevDayKeys.map((k) => (prev.byDate[k] || 0));
-
-  /* Dùng chung sliceOf/aggDim với trang Summary nên mọi chỉ số định nghĩa y hệt nhau */
+  /* Cùng bộ chỉ số với Summary (sliceOf/aggDim) nên mọi định nghĩa khớp nhau,
+     chỉ khác: mọi so sánh ở đây đều là TUẦN NÀY vs TUẦN TRƯỚC. */
   const slice = useMemo(() => sliceOf(cur, meta, {}), [cur, meta]);
   const prevSlice = useMemo(() => sliceOf(prev, meta, {}), [prev, meta]);
-  const weekRevenue = slice.revenue;
-  const prevWeekRevenue = prevSlice.revenue;
+  const wk = { deltaLabel: 'vs tuần trước', noPrevHint: 'chưa có tuần trước để so' };
 
-  /* Bóc theo miền / tỉnh-TP / AM: mỗi nhóm đủ Doanh thu, TC, AOV, AOV-ET, AOV-D, ADS
-     và % so với cùng nhóm tuần trước. */
-  const dims = useMemo(() => {
-    const defs = [
-      { k: 'region', label: 'Miền', lower: 'miền', keyOf: (m) => m.region || UNASSIGNED },
-      { k: 'city', label: 'Tỉnh/TP', lower: 'tỉnh/TP', keyOf: (m) => m.city || UNASSIGNED },
-      { k: 'am', label: 'AM', lower: 'AM', keyOf: (m) => m.am || UNASSIGNED },
-    ];
-    return defs.map((d) => {
-      const prevBy = {};
-      for (const r of aggDim(prevSlice.stores, meta, d.keyOf, null, prevSlice.nDays, 7)) prevBy[r.name] = r;
-      return {
-        ...d,
-        rows: aggDim(slice.stores, meta, d.keyOf, null, slice.nDays, 7)
-          .map((r) => ({ ...r, prev: prevBy[r.name] || null }))
-          .sort((a, b) => b.revenue - a.revenue),
-      };
-    });
-  }, [slice, prevSlice, meta]);
+  const dayKeys = useMemo(() => { const out = []; for (let k = range.from; k <= range.to; k = dAdd(k, 1)) out.push(k); return out; }, [range]);
+  const prevDayKeys = useMemo(() => dayKeys.map((k) => dAdd(k, -7)), [dayKeys]);
+  const curByDay = dayKeys.map((k) => (slice.byDate[k] ? slice.byDate[k].revenue : 0));
+  const prevByDay = prevDayKeys.map((k) => (prevSlice.byDate[k] ? prevSlice.byDate[k].revenue : 0));
+  const billsByDay = dayKeys.map((k) => (slice.byDate[k] ? slice.byDate[k].bills : 0));
+  const weekDays = dayKeys.length;
 
-  const billsByDay = dayKeys.map((k) => (cur.days[k] ? cur.days[k].bills : 0));
-  /* Cột TC + đường AOV trên 2 trục: ngày đông khách chưa chắc là ngày doanh thu cao */
+  /* Target của tuần: mỗi ngày lấy target tháng chứa ngày đó chia cho số ngày của tháng. */
+  const targetByStore = useMemo(() => {
+    const share = {};
+    for (const k of dayKeys) {
+      const ym = k.slice(0, 7);
+      share[ym] = (share[ym] || 0) + 1 / (dDiff(monthStart(k), monthEnd(k)) + 1);
+    }
+    const m = {};
+    for (const t of targets || []) {
+      const pShare = share[t.year + '-' + pad2(t.month)];
+      if (!pShare) continue;
+      m[t.storeId] = (m[t.storeId] || 0) + (t.target || 0) * pShare;
+    }
+    return m;
+  }, [targets, dayKeys]);
+  const targetTotal = useMemo(() => Object.values(targetByStore).reduce((a, v) => a + v, 0), [targetByStore]);
+  const targetStores = useMemo(() => Object.values(targetByStore).filter((v) => v > 0).length, [targetByStore]);
+  const achievePct = targetTotal ? slice.revenue / targetTotal * 100 : null;
+  const fcPct = targetTotal ? (slice.ads * slice.nStores * weekDays) / targetTotal * 100 : null;
+  const adsTarget = weekDays && targetStores ? targetTotal / weekDays / targetStores : 0;
+  const adsGapPct = adsTarget ? (slice.ads - adsTarget) / adsTarget * 100 : null;
+  const dayTarget = targetTotal ? targetTotal / weekDays : 0;
+
+  /* ---- Doanh thu theo thứ: tuần này vs tuần trước, kèm mốc target/ngày ---- */
+  const wdOption = useMemo(() => ({
+    ...ANIM,
+    grid: { left: 58, right: 18, top: 30, bottom: 28 },
+    tooltip: {
+      ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
+      formatter: (ps) => `<b>${wdOf(dayKeys[ps[0].dataIndex])} · ${dFull(dayKeys[ps[0].dataIndex])}</b><br/>`
+        + `${ps[0].marker} Tuần này <b>${money(curByDay[ps[0].dataIndex])} đ</b><br/>`
+        + `${ps[1].marker} Tuần trước (${dFull(prevDayKeys[ps[0].dataIndex])}) <b>${money(prevByDay[ps[0].dataIndex])} đ</b>`
+        + (prevByDay[ps[0].dataIndex] ? `<br/>Chênh lệch <b>${pct1(pctDiff(curByDay[ps[0].dataIndex], prevByDay[ps[0].dataIndex]))}</b>` : ''),
+    },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: { type: 'category', data: dayKeys.map(wdOf), ...AXIS_STYLE, splitLine: { show: false } },
+    yAxis: { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+    series: [
+      { name: 'Tuần này', type: 'bar', barGap: '18%', barMaxWidth: 26, itemStyle: { color: BRAND_HEX, borderRadius: [4, 4, 0, 0] }, data: curByDay,
+        markLine: dayTarget ? { silent: true, symbol: 'none', lineStyle: { type: 'dashed', color: INK.axis, width: 1.4 },
+          label: { formatter: 'Target/ngày', color: INK.mute, fontSize: 10.5, fontFamily: FONT, position: 'insideEndTop' },
+          data: [{ yAxis: Math.round(dayTarget) }] } : undefined },
+      { name: 'Tuần trước', type: 'bar', barMaxWidth: 26, itemStyle: { color: '#DED9D2', borderRadius: [4, 4, 0, 0] }, data: prevByDay },
+    ],
+  }), [dayKeys, prevDayKeys, curByDay, prevByDay, dayTarget]);
+
+  /* ---- Luỹ kế trong tuần vs nhịp target ---- */
+  const cumOption = useMemo(() => {
+    let a = 0, b = 0;
+    const cum = curByDay.map((v) => (a += v));
+    const cumPrev = prevByDay.map((v) => (b += v));
+    const pace = dayKeys.map((_, i) => (targetTotal ? targetTotal / weekDays * (i + 1) : 0));
+    return {
+      ...ANIM,
+      grid: { left: 58, right: 18, top: 30, bottom: 28 },
+      tooltip: { ...TIP, trigger: 'axis' },
+      legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+      xAxis: { type: 'category', data: dayKeys.map(wdOf), ...AXIS_STYLE, splitLine: { show: false } },
+      yAxis: { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+      series: [
+        { name: 'Luỹ kế tuần này', type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 2.6, color: BRAND_HEX },
+          areaStyle: { color: 'rgba(176,125,43,.10)' }, data: cum },
+        { name: 'Luỹ kế tuần trước', type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 2, color: '#C9C3BA' }, data: cumPrev },
+        ...(targetTotal ? [{ name: 'Nhịp target', type: 'line', symbol: 'none', silent: true,
+          lineStyle: { width: 1.6, type: 'dashed', color: INK.axis }, data: pace }] : []),
+      ],
+    };
+  }, [dayKeys, curByDay, prevByDay, targetTotal, weekDays]);
+
+  /* ---- TC và AOV theo thứ ---- */
   const tcAovOption = useMemo(() => ({
     ...ANIM,
-    grid: { left: 52, right: 58, top: 30, bottom: 30 },
+    grid: { left: 58, right: 58, top: 30, bottom: 28 },
     tooltip: { ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } } },
     legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
     xAxis: { type: 'category', data: dayKeys.map(wdOf), ...AXIS_STYLE, splitLine: { show: false } },
@@ -2560,117 +2612,127 @@ function WeeklyPage({ data }) {
       { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
     ],
     series: [
-      { name: 'TC', type: 'bar', barMaxWidth: 34, itemStyle: { color: SERIES[0], borderRadius: [4, 4, 0, 0] }, data: billsByDay },
+      { name: 'TC', type: 'bar', barMaxWidth: 30, itemStyle: { color: SERIES[0], borderRadius: [4, 4, 0, 0] }, data: billsByDay },
       { name: 'AOV', type: 'line', yAxisIndex: 1, smooth: true, symbolSize: 7,
         lineStyle: { width: 2.4, color: SERIES[2] }, itemStyle: { color: SERIES[2] },
         data: dayKeys.map((k, i) => (billsByDay[i] ? Math.round(curByDay[i] / billsByDay[i]) : null)) },
     ],
   }), [dayKeys, curByDay, billsByDay]);
 
-  const wdOption = useMemo(() => ({
-    ...ANIM,
-    grid: { left: 52, right: 18, top: 30, bottom: 30 },
-    tooltip: {
-      ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
-      formatter: (ps) => `<b>${wdOf(dayKeys[ps[0].dataIndex])} · ${dFull(dayKeys[ps[0].dataIndex])}</b><br/>` +
-        `${ps[0].marker} Tuần này <b>${money(curByDay[ps[0].dataIndex])} đ</b><br/>` +
-        `${ps[1].marker} Tuần trước (${dFull(prevDayKeys[ps[0].dataIndex])}) <b>${money(prevByDay[ps[0].dataIndex])} đ</b>`,
-    },
-    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
-    xAxis: { type: 'category', data: dayKeys.map(wdOf), ...AXIS_STYLE, splitLine: { show: false } },
-    yAxis: { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
-    series: [
-      { name: 'Tuần này', type: 'bar', barGap: '20%', barMaxWidth: 30, itemStyle: { color: BRAND_HEX, borderRadius: [4, 4, 0, 0] }, data: curByDay },
-      { name: 'Tuần trước', type: 'bar', barMaxWidth: 30, itemStyle: { color: '#D8D4CF', borderRadius: [4, 4, 0, 0] }, data: prevByDay },
-    ],
-  }), [dayKeys, prevDayKeys, curByDay, prevByDay]);
+  /* ---- Ba chiều quản trị: miền / tỉnh-TP / AM ---- */
+  const dims = useMemo(() => {
+    const defs = [
+      { k: 'region', label: 'Miền', lower: 'miền', keyOf: (m) => m.region || UNASSIGNED, width: 78, limit: 0 },
+      { k: 'city', label: 'Tỉnh/TP', lower: 'tỉnh/TP', keyOf: (m) => m.city || UNASSIGNED, width: 92, limit: 10 },
+      { k: 'am', label: 'AM', lower: 'AM', keyOf: (m) => m.am || UNASSIGNED, width: 92, limit: 10 },
+    ];
+    return defs.map((d) => {
+      const prevBy = {};
+      for (const r of aggDim(prevSlice.stores, meta, d.keyOf, null, prevSlice.nDays, weekDays)) prevBy[r.name] = r;
+      let rows = aggDim(slice.stores, meta, d.keyOf, targetByStore, slice.nDays, weekDays)
+        .map((r) => ({ ...r, prev: prevBy[r.name] || null }))
+        .sort((a, b) => b.revenue - a.revenue);
+      if (d.limit) rows = rows.slice(0, d.limit);
+      return { ...d, rows };
+    });
+  }, [slice, prevSlice, meta, targetByStore, weekDays]);
 
-  /* ---- Chi nhánh nổi bật trong tuần: doanh thu cao nhất + tăng trưởng so tuần trước ---- */
-  const storeRows = useMemo(() => Object.values(cur.byStore || {}).map((st) => {
+  /* ---- Chi nhánh trong tuần ---- */
+  const storeRows = useMemo(() => slice.stores.map((st) => {
     const m = meta[st.id] || {};
-    const prevSt = prev.byStore[st.id];
-    const revenue = adjRevenue(st.revenue, st.commission);
-    const prevRevenue = prevSt ? adjRevenue(prevSt.revenue, prevSt.commission) : null;
-    return { id: st.id, name: storeShort(m.storeName || st.name), city: m.city || UNASSIGNED, revenue, prevRevenue, growth: prevRevenue ? pctDiff(revenue, prevRevenue) : null };
-  }).filter((r) => r.city !== UNASSIGNED).sort((a, b) => b.revenue - a.revenue), [cur, prev, meta]);
-  const topWeekStores = useMemo(() => storeRows.slice(0, 10)
-    .map((r) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: r.growth })), [storeRows]);
-  const topWeekGrowth = useMemo(() => storeRows
-    .filter((r) => r.growth != null)
-    .sort((a, b) => b.growth - a.growth)
-    .slice(0, 10)
-    .map((r) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: r.growth })), [storeRows]);
+    const prevSt = prevSlice.stores.find((x) => x.id === st.id);
+    return {
+      id: st.id, name: storeShort(m.storeName || st.name), city: m.city || UNASSIGNED,
+      revenue: st.revenue, bills: st.bills, prevRevenue: prevSt ? prevSt.revenue : null,
+      growth: prevSt && prevSt.revenue ? pctDiff(st.revenue, prevSt.revenue) : null,
+    };
+  }).sort((a, b) => b.revenue - a.revenue), [slice, prevSlice, meta]);
+  const lb = (r) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: r.growth });
+  const topWeekStores = useMemo(() => storeRows.slice(0, 10).map(lb), [storeRows]);
+  const topWeekGrowth = useMemo(() => storeRows.filter((r) => r.growth != null)
+    .sort((a, b) => b.growth - a.growth).slice(0, 10).map(lb), [storeRows]);
+  const topWeekDrop = useMemo(() => storeRows.filter((r) => r.growth != null)
+    .sort((a, b) => a.growth - b.growth).slice(0, 10).map(lb), [storeRows]);
+
+  const peak = useMemo(() => dayKeys.map((k, i) => ({ k, v: curByDay[i] })).filter((x) => x.v)
+    .sort((a, b) => b.v - a.v), [dayKeys, curByDay]);
+  const peakDay = peak[0], slowDay = peak[peak.length - 1];
 
   const money2 = (v) => money(v) + ' đ';
-  const wk = { deltaLabel: 'vs tuần trước', noPrevHint: 'chưa có tuần trước để so' };
+  const delta = (g) => <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td>;
+
+  /* Bảng số dùng chung cho các thẻ ADS / AOV theo 3 chiều */
+  const adsTable = (d) => (
+    <table>
+      <thead><tr><th>{d.label}</th><th className="r">CH</th><th className="r">ADS</th><th className="r">ADS target</th>
+        <th className="r">Đạt</th><th className="r">ADTC</th><th className="r">vs tuần trước</th></tr></thead>
+      <tbody>{d.rows.map((r) => (
+        <tr key={r.name}>
+          <td>{r.name}</td>
+          <td className="r">{r.sRev}</td>
+          <td className="r">{money2(r.ads)}</td>
+          <td className="r">{r.adsTarget ? money2(r.adsTarget) : '—'}</td>
+          <td className="r">{r.adsTarget ? pct1(r.ads / r.adsTarget * 100) : '—'}</td>
+          <td className="r">{money(adsOf(r.bills, slice.nDays, r.sRev))}</td>
+          {delta(r.prev && r.prev.ads ? pctDiff(r.ads, r.prev.ads) : null)}
+        </tr>
+      ))}</tbody>
+    </table>
+  );
+  const aovTable = (d) => (
+    <table>
+      <thead><tr><th>{d.label}</th><th className="r">Doanh thu</th><th className="r">TC</th><th className="r">AOV</th>
+        <th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">vs tuần trước</th></tr></thead>
+      <tbody>{d.rows.map((r) => (
+        <tr key={r.name}>
+          <td>{r.name}</td>
+          <td className="r">{money2(r.revenue)}</td>
+          <td className="r">{money(r.bills)}</td>
+          <td className="r">{money2(r.aov)}</td>
+          <td className="r">{r.aovET == null ? '—' : money2(r.aovET)}</td>
+          <td className="r">{r.aovD == null ? '—' : money2(r.aovD)}</td>
+          {delta(r.prev && r.prev.aov ? pctDiff(r.aov, r.prev.aov) : null)}
+        </tr>
+      ))}</tbody>
+    </table>
+  );
+
+  const dShare = slice.tc ? (slice.stores.reduce((a, st) => a + (st.dBills || 0), 0) / slice.tc) * 100 : null;
+  const prevDShare = prevSlice.tc ? (prevSlice.stores.reduce((a, st) => a + (st.dBills || 0), 0) / prevSlice.tc) * 100 : null;
+  const adsCardH = barCardH(Math.max(...dims.map((d) => d.rows.length)), 30);
+  const aovCardH = barCardH(Math.max(dims[1].rows.length, dims[2].rows.length), 32, 240, 380);
 
   if (!cur.bills && !prev.bills) return <div className="empty">Chưa có dữ liệu cho tuần {dFull(range.from)} – {dFull(range.to)}.</div>;
 
   return (
     <>
+      {/* ============ 1. TỔNG QUAN TUẦN ============ */}
+      <Section n="1" title="Tổng quan tuần"
+        sub={`${dFull(range.from)} – ${dFull(range.to)} · so với ${dFull(prevDayKeys[0])} – ${dFull(prevDayKeys[weekDays - 1])}`} />
+
       <div className="kpi-row">
-        <Kpi hero label="Revenue tuần" value={unit(weekRevenue)} cur={weekRevenue} prev={prevWeekRevenue} spark={curByDay} sparkColor="#D9A23F" {...wk} />
-        <Kpi label="TC · hoá đơn" value={unit(slice.tc)} cur={slice.tc} prev={prevSlice.tc} {...wk} />
-        <Kpi tint="blue" label="AOV · TB/hoá đơn" value={unit(slice.aov)} cur={slice.aov} prev={prevSlice.aov} {...wk} />
-        <Kpi label="ADS · TB/chi nhánh/ngày" value={unit(slice.ads)} cur={slice.ads} prev={prevSlice.ads} {...wk} />
+        <Kpi hero label="Revenue tuần" value={unit(slice.revenue)} cur={slice.revenue} prev={prevSlice.revenue}
+          spark={curByDay} sparkColor="#F0C979" {...wk} />
+        <Kpi label="TC · hoá đơn" value={unit(slice.tc)} cur={slice.tc} prev={prevSlice.tc} spark={billsByDay} sparkColor={SERIES[0]} {...wk} />
+        <Kpi tint="blue" label="AOV · TB/hoá đơn" value={unit(slice.aov)} cur={slice.aov} prev={prevSlice.aov}
+          spark={dayKeys.map((k, i) => (billsByDay[i] ? curByDay[i] / billsByDay[i] : 0))} sparkColor={SERIES[2]} {...wk} />
+        <TargetTile target={targetTotal} achieve={achievePct} fc={fcPct} label="Mục tiêu tuần" />
       </div>
-      <div className="kpi-row">
-        <Kpi label="AOV-ET · tại chỗ + mang về" value={slice.aovET == null ? '—' : unit(slice.aovET)}
-          cur={slice.aovET} prev={prevSlice.aovET} hint={slice.aovET == null ? 'tuần này chưa có dữ liệu nguồn đơn' : null} {...wk} />
-        <Kpi label="AOV-D · nguồn giao hàng" value={slice.aovD == null ? '—' : unit(slice.aovD)}
-          cur={slice.aovD} prev={prevSlice.aovD} hint={slice.aovD == null ? 'tuần này chưa có dữ liệu nguồn đơn' : null} {...wk} />
-        <Kpi label="Chi nhánh có doanh thu" value={String(slice.nStores)} cur={slice.nStores} prev={prevSlice.nStores} {...wk} />
-        <Kpi label="Ngày có doanh thu" value={String(slice.nDays)} cur={slice.nDays} prev={prevSlice.nDays} {...wk} />
+
+      <div className="insight-row">
+        <Insight icon={<Ic.arrowU size={15} />} label="Ngày cao điểm"
+          value={peakDay ? `${wdOf(peakDay.k)} ${dShort(peakDay.k)} · ${unit(peakDay.v)}` : '—'} />
+        <Insight icon={<Ic.arrowD size={15} />} label="Ngày thấp điểm"
+          value={slowDay ? `${wdOf(slowDay.k)} ${dShort(slowDay.k)} · ${unit(slowDay.v)}` : '—'} />
+        <Insight icon={<Ic.store size={15} />} label="Chi nhánh có doanh thu"
+          value={`${slice.nStores}${prevSlice.nStores ? ` · tuần trước ${prevSlice.nStores}` : ''}`} />
+        <Insight icon={<Ic.cal size={15} />} label="Ngày có doanh thu" value={`${slice.nDays}/${weekDays}`} />
       </div>
 
       <div className="dash">
-        {dims.map((d) => (
-          <div className="c12" key={'wk-' + d.k}>
-            <ChartCard
-              title={'Theo ' + d.lower}
-              sub="Doanh thu tuần này so với tuần trước · bấm Bảng số để xem đủ TC / AOV / ADS"
-              height={barCardH(d.rows.length, 34, 240, 420)}
-              option={cmpBarOption(d.rows, {
-                value: (r) => r.revenue, base: (r) => (r.prev ? r.prev.revenue : 0),
-                valueName: 'Tuần này', baseName: 'Tuần trước', labelWidth: d.k === 'region' ? 78 : 96,
-              })}
-              empty={!d.rows.length ? 'Chưa có dữ liệu.' : null}
-              table={(
-                <table>
-                  <thead><tr><th>{d.label}</th><th className="r">CH</th><th className="r">Doanh thu</th><th className="r">vs tuần trước</th>
-                    <th className="r">TC</th><th className="r">vs tuần trước</th><th className="r">AOV</th>
-                    <th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">ADS</th></tr></thead>
-                  <tbody>{d.rows.map((r) => {
-                    const gR = r.prev && r.prev.revenue ? pctDiff(r.revenue, r.prev.revenue) : null;
-                    const gT = r.prev && r.prev.bills ? pctDiff(r.bills, r.prev.bills) : null;
-                    const delta = (g) => <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td>;
-                    return (
-                      <tr key={r.name}>
-                        <td>{r.name}</td>
-                        <td className="r">{r.sRev}</td>
-                        <td className="r">{money2(r.revenue)}</td>
-                        {delta(gR)}
-                        <td className="r">{money(r.bills)}</td>
-                        {delta(gT)}
-                        <td className="r">{money2(r.aov)}</td>
-                        <td className="r">{r.aovET == null ? '—' : money2(r.aovET)}</td>
-                        <td className="r">{r.aovD == null ? '—' : money2(r.aovD)}</td>
-                        <td className="r">{money2(r.ads)}</td>
-                      </tr>
-                    );
-                  })}</tbody>
-                </table>
-              )}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="dash">
-        <div className="c12">
+        <div className="c7">
           <ChartCard
-            title="Doanh thu theo thứ — tuần này so với tuần trước" sub={`${dFull(range.from)} – ${dFull(range.to)} · so với ${dFull(prevDayKeys[0])} – ${dFull(prevDayKeys[6])}`}
-            height={340}
+            title="Doanh thu theo thứ" sub="Tuần này so với tuần trước · đường gạch là target/ngày" height={320}
             option={wdOption}
             table={(
               <table>
@@ -2678,17 +2740,81 @@ function WeeklyPage({ data }) {
                 <tbody>{dayKeys.map((k, i) => (
                   <tr key={k}><td>{wdOf(k)}</td><td>{dFull(k)}</td>
                     <td className="r">{money2(curByDay[i])}</td><td className="r">{money2(prevByDay[i])}</td>
-                    <td className="r">{prevByDay[i] ? pct1(pctDiff(curByDay[i], prevByDay[i])) : '—'}</td></tr>
+                    {delta(prevByDay[i] ? pctDiff(curByDay[i], prevByDay[i]) : null)}</tr>
                 ))}</tbody>
               </table>
             )}
           />
         </div>
+        <div className="c5">
+          <ChartCard
+            title="Luỹ kế trong tuần" sub="Tuần này · tuần trước · nhịp target chia đều theo ngày" height={320}
+            option={cumOption}
+            table={(
+              <table>
+                <thead><tr><th>Thứ</th><th className="r">Luỹ kế tuần này</th><th className="r">Luỹ kế tuần trước</th><th className="r">Nhịp target</th></tr></thead>
+                <tbody>{dayKeys.map((k, i) => {
+                  const c = curByDay.slice(0, i + 1).reduce((a, v) => a + v, 0);
+                  const pv = prevByDay.slice(0, i + 1).reduce((a, v) => a + v, 0);
+                  return <tr key={k}><td>{wdOf(k)}</td><td className="r">{money2(c)}</td><td className="r">{money2(pv)}</td>
+                    <td className="r">{targetTotal ? money2(targetTotal / weekDays * (i + 1)) : '—'}</td></tr>;
+                })}</tbody>
+              </table>
+            )}
+          />
+        </div>
+      </div>
 
-        <div className="c6">
+      {/* ============ 2. ADS ============ */}
+      <Section n="2" title="ADS — doanh thu TB mỗi chi nhánh mỗi ngày"
+        sub="So với tuần trước và với ADS target (target tuần chia cho số ngày và số chi nhánh có target)" />
+
+      <div className="kpi-row">
+        <Kpi tint label="ADS · thực tế" value={unit(slice.ads)} cur={slice.ads} prev={prevSlice.ads} spark={curByDay} sparkColor={BRAND_HEX} {...wk} />
+        <Kpi label="ADS target · target/CH/ngày" value={adsTarget ? unit(adsTarget) : '—'}
+          hint={adsTarget ? `${unit(targetTotal)} đ chia ${weekDays} ngày × ${targetStores} chi nhánh` : 'chưa nạp target cho tuần này'} />
+        <Kpi tint={adsGapPct == null ? null : adsGapPct >= 0 ? 'green' : null} label="Chênh lệch ADS vs target"
+          value={adsGapPct == null ? '—' : (adsGapPct >= 0 ? '+' : '') + pct1(adsGapPct)}
+          hint={adsGapPct == null ? 'cần target để so' : (adsGapPct >= 0 ? 'đang vượt mốc mỗi ngày' : `còn thiếu ${unit(adsTarget - slice.ads)} đ/chi nhánh/ngày`)} />
+        <Kpi label="ADTC · TC TB/chi nhánh/ngày" value={unit(slice.adtc)} cur={slice.adtc} prev={prevSlice.adtc}
+          spark={billsByDay} sparkColor={SERIES[0]} {...wk} />
+      </div>
+
+      <div className="dash">
+        {dims.map((d) => (
+          <div className="c4" key={'ads-' + d.k}>
+            <ChartCard
+              title={`ADS theo ${d.lower}`} sub={d.limit ? `Top ${d.limit} theo doanh thu · so tuần trước` : 'So với tuần trước'}
+              height={adsCardH}
+              option={cmpBarOption(d.rows, {
+                value: (r) => r.ads, base: (r) => (r.prev ? r.prev.ads : 0),
+                valueName: 'ADS tuần này', baseName: 'Tuần trước', labelWidth: d.width,
+              })}
+              empty={!d.rows.length ? 'Chưa có dữ liệu.' : null}
+              table={adsTable(d)}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* ============ 3. AOV ============ */}
+      <Section n="3" title="AOV — giá trị trung bình mỗi hoá đơn"
+        sub="AOV chung / tại chỗ + mang về (ET) / giao hàng (D), theo thứ và theo miền · tỉnh/TP · AM" />
+
+      <div className="kpi-row">
+        <Kpi tint="blue" label="AOV · chung" value={unit(slice.aov)} cur={slice.aov} prev={prevSlice.aov} {...wk} />
+        <Kpi label="AOV-ET · tại chỗ + mang về" value={slice.aovET == null ? '—' : unit(slice.aovET)}
+          cur={slice.aovET} prev={prevSlice.aovET} hint={slice.aovET == null ? 'tuần này chưa có dữ liệu nguồn đơn' : null} {...wk} />
+        <Kpi label="AOV-D · nguồn giao hàng" value={slice.aovD == null ? '—' : unit(slice.aovD)}
+          cur={slice.aovD} prev={prevSlice.aovD} hint={slice.aovD == null ? 'tuần này chưa có dữ liệu nguồn đơn' : null} {...wk} />
+        <Kpi label="Tỉ trọng hoá đơn giao hàng" value={dShare == null ? '—' : pct1(dShare)} cur={dShare} prev={prevDShare} {...wk} />
+      </div>
+
+      <div className="dash">
+        <div className="c12">
           <ChartCard
             title="TC và AOV theo thứ" sub="Cột là số hoá đơn, đường là AOV — thấy ngay ngày đông khách mà giá trị đơn thấp"
-            height={320}
+            height={300}
             option={tcAovOption}
             table={(
               <table>
@@ -2703,12 +2829,26 @@ function WeeklyPage({ data }) {
             )}
           />
         </div>
-        <div className="c6">
-          <Leaderboard title="Top chi nhánh trong tuần" sub="Doanh thu cao nhất · bấm để xem" rows={topWeekStores} />
-        </div>
-        <div className="c6">
-          <Leaderboard title="Tăng trưởng mạnh nhất trong tuần" sub="So với cùng chi nhánh tuần trước" rows={topWeekGrowth} />
-        </div>
+        {dims.map((d) => (
+          <div className="c4" key={'aov-' + d.k}>
+            <ChartCard
+              title={`AOV theo ${d.lower}`} sub={d.limit ? `Top ${d.limit} theo doanh thu` : 'Ba chuỗi cạnh nhau'}
+              height={aovCardH}
+              option={aovDimOption(d.rows, d.width, 'tuần trước')}
+              empty={!d.rows.length ? 'Chưa có dữ liệu.' : null}
+              table={aovTable(d)}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* ============ 4. CHI NHÁNH ============ */}
+      <Section n="4" title="Chi nhánh trong tuần" sub="Doanh thu cao nhất, tăng mạnh nhất và giảm mạnh nhất — đều so với tuần trước" />
+
+      <div className="dash">
+        <div className="c4"><Leaderboard title="Top 10 doanh thu" sub="Tuần này" rows={topWeekStores} /></div>
+        <div className="c4"><Leaderboard title="Top 10 tăng mạnh nhất" sub="So với cùng chi nhánh tuần trước" rows={topWeekGrowth} /></div>
+        <div className="c4"><Leaderboard title="Top 10 giảm mạnh nhất" sub="So với cùng chi nhánh tuần trước" rows={topWeekDrop} /></div>
       </div>
     </>
   );
