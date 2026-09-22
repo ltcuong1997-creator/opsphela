@@ -10,8 +10,18 @@
  * Tên chi nhánh được khớp với mã Fabi qua danh mục stores (bỏ dấu, bỏ tiền tố "Phê La").
  * Chỉ ghi target mới hoặc đổi số.
  *
+ * Tên không tự khớp thì tra thêm store-aliases.json (tên trong file -> mã Fabi).
+ *
  *   node import-targets.js --dry-run target.xlsx      xem đọc được gì, không ghi
  *   node import-targets.js target.xlsx [--year 2026]
+ *
+ * Tuỳ chọn cho file nội bộ (vd d05.xlsx, sheet "Target", cột "DOANH THU"):
+ *   --sheet Target          chỉ đọc sheet này
+ *   --target-col "DOANH THU"  tên cột target nếu không nằm trong danh sách mặc định
+ *   --only-year 2026        chỉ nạp target của năm này
+ *   --fix-extra-1           sửa số bị gõ thừa chữ số 1 ở đầu (11.212.000.000 -> 1.212.000.000):
+ *                           dòng nào > 5 lần trung vị của tháng và bắt đầu bằng 1 thì bỏ
+ *                           dần số 1 đầu; in từng dòng đã sửa để duyệt
  */
 
 const XLSX = require('xlsx');
@@ -46,12 +56,12 @@ function monthOfHeader(h, defaultYear) {
   return null;
 }
 
-function parseSheet(matrix, defaultYear) {
+function parseSheet(matrix, defaultYear, targetCol) {
   // Dòng tiêu đề: trong 20 dòng đầu, dòng có cột cửa hàng + (cột target hoặc nhiều cột tháng)
   for (let r = 0; r < Math.min(matrix.length, 20); r++) {
     const heads = matrix[r] || [];
     const find = (names) => heads.findIndex((h) => names.includes(norm(h)));
-    const c = { store: find(COLS.store), storeId: find(COLS.storeId), month: find(COLS.month), year: find(COLS.year), target: find(COLS.target) };
+    const c = { store: find(COLS.store), storeId: find(COLS.storeId), month: find(COLS.month), year: find(COLS.year), target: find(targetCol ? [norm(targetCol)] : COLS.target) };
     if (c.store < 0 && c.storeId < 0) continue;
     const monthCols = heads.map((h, i) => [i, monthOfHeader(h, defaultYear)]).filter(([, m]) => m);
     const out = [];
@@ -78,22 +88,57 @@ function parseSheet(matrix, defaultYear) {
   return null;
 }
 
+// Trung vị của 1 tháng, tính trên số đã bỏ số 1 thừa (để các dòng lỗi không kéo trung vị lên)
+function fixExtraOnes(rows) {
+  const strip = (x, limit) => { let s = String(x); while (x > limit && s[0] === '1' && s.length > 1) { s = s.slice(1); x = +s; } return x; };
+  const byMonth = {};
+  for (const r of rows) (byMonth[`${r.year}-${r.month}`] ||= []).push(r);
+  const fixes = [];
+  for (const list of Object.values(byMonth)) {
+    const guess = list.map((r) => strip(r.target, 5e9)).sort((a, b) => a - b);
+    const med = guess[guess.length >> 1];
+    for (const r of list) {
+      const x = strip(r.target, med * 5);
+      if (x !== r.target) { fixes.push({ ...r, from: r.target, to: x }); r.target = x; }
+    }
+  }
+  return fixes;
+}
+
 async function main() {
   loadEnv();
   const dryRun = process.argv.includes('--dry-run');
   const defaultYear = +(arg('--year') || new Date().getFullYear());
-  const files = process.argv.slice(2).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--year');
+  const onlyYear = arg('--only-year') ? +arg('--only-year') : null;
+  const withValue = ['--year', '--sheet', '--target-col', '--only-year'];
+  const files = process.argv.slice(2).filter((a, i, all) => !a.startsWith('--') && !withValue.includes(all[i - 1]));
   if (!files.length) throw new Error('Cách dùng: node import-targets.js [--dry-run] [--year 2026] <file.xlsx> ...');
 
   const db = initFirebase();
   const stores = {};
   (await db.collection('stores').get()).forEach((d) => { stores[storeKey(d.data().storeName)] = { id: d.id, name: d.data().storeName }; });
+  const aliasFile = path.join(__dirname, 'store-aliases.json');
+  const aliases = require('fs').existsSync(aliasFile) ? require(aliasFile) : {};
+  for (const [name, id] of Object.entries(aliases)) {
+    if (name.startsWith('_')) continue;
+    const s = Object.values(stores).find((x) => x.id === id);
+    stores[storeKey(name)] = { id, name: s ? s.name : name };
+  }
   const existing = {};
   (await db.collection('targets').get()).forEach((d) => { existing[d.id] = d.data().target; });
 
   for (const file of files) {
-    const wb = XLSX.readFile(file);
-    const parsed = wb.SheetNames.map((n) => parseSheet(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null }), defaultYear)).filter(Boolean);
+    const sheet = arg('--sheet');
+    const wb = XLSX.readFile(file, sheet ? { sheets: [sheet] } : {});
+    const names = sheet ? [sheet] : wb.SheetNames;
+    if (sheet && !wb.Sheets[sheet]) throw new Error(`${path.basename(file)}: không có sheet "${sheet}"`);
+    const parsed = names.map((n) => parseSheet(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null }), defaultYear, arg('--target-col'))).filter(Boolean);
+    for (const p of parsed) if (onlyYear) p.rows = p.rows.filter((r) => r.year === onlyYear);
+    if (process.argv.includes('--fix-extra-1')) {
+      const fixes = parsed.flatMap((p) => fixExtraOnes(p.rows));
+      console.log(`Sửa ${fixes.length} target thừa số 1 ở đầu:`);
+      for (const f of fixes) console.log(`  ${f.month}/${f.year}  ${f.store}: ${f.from.toLocaleString('vi-VN')} -> ${f.to.toLocaleString('vi-VN')}`);
+    }
     if (!parsed.length) throw new Error(`${path.basename(file)}: không tìm thấy cột Chi nhánh + Target/Tháng`);
 
     const ok = {}, unmatched = new Set(), bad = [];
