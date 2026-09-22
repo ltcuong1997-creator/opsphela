@@ -8,6 +8,9 @@
  *     { date, storeId, storeName, revenue, quantity, bills, hash, updatedAt,
  *       items: { [itemKey]: { code, name, group, quantity, revenue } } }
  *   syncState/d05_{date}         { hashes: { [docId]: hash } }
+ *   d05Days/{date}               tóm tắt cả ngày cho trang web: tổng ngày, tổng từng
+ *     cửa hàng (stores{}), tổng từng món cả chuỗi (items{}) - web đọc 1 doc/ngày
+ *     thay vì ~90 doc nặng, xem 1 tháng chỉ tốn ~30 lượt đọc.
  *
  * Mỗi lần ghi, đọc 1 doc syncState của ngày đó (1 lượt đọc), so hash từng
  * cửa hàng, chỉ ghi các cửa hàng có số liệu khác đi + cập nhật lại syncState.
@@ -22,6 +25,7 @@ const path = require('path');
 
 const COLLECTION = 'd05Daily';
 const STATE_COLLECTION = 'syncState';
+const DAYS_COLLECTION = 'd05Days';
 
 // Tên cột trong file Excel D05 (khác bảng trên web: "Ngày" thay cho "Thời
 // gian", "Hoá đơn" thay cho "Mã hoá đơn", và có thêm cột "Cửa hàng").
@@ -159,21 +163,73 @@ async function writeChanged(db, docs) {
     }
     if (!changed.length) continue;
 
-    // Batch tối đa 500 thao tác; chừa 1 chỗ cho syncState.
-    for (let i = 0; i < changed.length; i += 450) {
+    // Tóm tắt ngày cần đủ mọi cửa hàng của ngày đó. File xuất "tất cả cửa hàng" thì
+    // dayDocs đã đủ; lỡ chỉ nạp 1 phần (file vài cửa hàng) thì đọc bù phần còn lại.
+    let allDay = dayDocs;
+    const missing = Object.keys(oldHashes).filter((id) => !dayDocs[id]);
+    if (missing.length) {
+      const snap = await db.collection(COLLECTION).where('date', '==', date).get();
+      allDay = {};
+      snap.forEach((d) => (allDay[d.id] = d.data()));
+      Object.assign(allDay, dayDocs);
+    }
+    const summary = daySummary(date, allDay);
+
+    // Chia batch 100 doc (~1 MB) - batch lớn hay bị DEADLINE_EXCEEDED khi mạng chậm.
+    for (let i = 0; i < changed.length; i += 100) {
       const batch = db.batch();
-      for (const [id, doc] of changed.slice(i, i + 450)) {
+      for (const [id, doc] of changed.slice(i, i + 100)) {
         batch.set(db.collection(COLLECTION).doc(id), {
           ...doc,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
-      if (i + 450 >= changed.length) batch.set(stateRef, { hashes: newHashes });
+      if (i + 100 >= changed.length) {
+        batch.set(stateRef, { hashes: newHashes });
+        batch.set(db.collection(DAYS_COLLECTION).doc(date), {
+          ...summary,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
       await batch.commit();
     }
     written += changed.length;
   }
   return { written, skipped };
+}
+
+// Gộp các doc cửa hàng của 1 ngày thành doc tóm tắt d05Days/{date}.
+function daySummary(date, dayDocs) {
+  const s = { date, revenue: 0, bills: 0, quantity: 0, storeCount: 0, stores: {}, items: {} };
+  for (const d of Object.values(dayDocs)) {
+    s.revenue += d.revenue;
+    s.bills += d.bills;
+    s.quantity += d.quantity;
+    s.storeCount++;
+    s.stores[d.storeId] = { name: d.storeName, revenue: d.revenue, bills: d.bills, quantity: d.quantity };
+    for (const [k, it] of Object.entries(d.items || {})) {
+      const x = (s.items[k] ||= { name: it.name, group: it.group, quantity: 0, revenue: 0 });
+      x.quantity += it.quantity;
+      x.revenue += it.revenue;
+    }
+  }
+  return s;
+}
+
+// Dựng lại d05Days cho các ngày đã có trong d05Daily (dùng 1 lần khi mới thêm d05Days,
+// hoặc khi nghi ngờ tóm tắt lệch). Mỗi ngày: đọc ~90 doc, ghi 1 doc.
+async function rebuildDaySummaries(db, dates) {
+  for (const date of dates) {
+    const snap = await db.collection(COLLECTION).where('date', '==', date).get();
+    if (snap.empty) continue;
+    const dayDocs = {};
+    snap.forEach((d) => (dayDocs[d.id] = d.data()));
+    await db.collection(DAYS_COLLECTION).doc(date).set({
+      ...daySummary(date, dayDocs),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    console.log(`${date}: ${snap.size} cửa hàng`);
+  }
 }
 
 function summarize(docs) {
@@ -183,4 +239,4 @@ function summarize(docs) {
   return `${list.length} cửa hàng-ngày, ngày ${dates[0]} → ${dates[dates.length - 1]}, tổng tiền ${revenue.toLocaleString('vi-VN')} ₫`;
 }
 
-module.exports = { loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize, COL };
+module.exports = { loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize, rebuildDaySummaries, COL };

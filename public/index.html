@@ -373,12 +373,69 @@ table.tb tfoot td{padding:11px 12px;border-top:2px solid var(--line);font-weight
 .bars-items .nm{width:230px;flex:0 0 230px;font-size:12.5px}
 .bars-items .pc{display:none}
 @media(max-width:960px){ .bars-items .nm{width:130px;flex:0 0 130px} }
-/* Chọn nhanh khoảng ngày trên thanh trên cùng */
-.seg{display:flex;gap:2px;background:var(--card);border-radius:99px;padding:3px;box-shadow:var(--sh-1)}
-.seg button{padding:5px 12px;border-radius:99px;font-size:12.5px;font-weight:600;color:var(--txt-3);transition:background .2s,color .2s}
-.seg button:hover{color:var(--txt)}
-.seg button.on{background:var(--brand);color:#fff;box-shadow:var(--sh-brand)}
-@media(max-width:960px){ .seg button{padding:4px 9px;font-size:11.5px} }
+/* ================= CHỌN KHOẢNG NGÀY =================
+   Nút trên thanh trên cùng mở ra một thẻ nổi: cột mốc nhanh bên trái, hai tháng liền nhau
+   bên phải. Bấm ngày đầu rồi ngày cuối; rê chuột là thấy trước dải ngày sẽ chọn. */
+.drp-wrap{position:relative}
+.drp-btn{display:inline-flex;align-items:center;gap:8px;background:var(--card);border-radius:99px;padding:7px 14px;
+  font-size:13px;font-weight:600;color:var(--txt);box-shadow:var(--sh-1);transition:box-shadow .2s;white-space:nowrap}
+.drp-btn:hover,.drp-btn.open{box-shadow:var(--sh-up)}
+.drp-btn .ic{color:var(--brand)}
+.drp-btn small{color:var(--txt-3);font-weight:600;font-size:11.5px}
+.drp{position:absolute;right:0;top:calc(100% + 8px);z-index:60;background:var(--card);border-radius:20px;
+  box-shadow:0 2px 4px rgba(20,24,28,.05),0 14px 34px rgba(20,24,28,.12),0 40px 80px rgba(20,24,28,.12);
+  display:flex;animation:pop .22s cubic-bezier(.2,.9,.3,1.1);transform-origin:top right}
+.drp-pre{width:148px;padding:12px 10px;border-right:1px solid var(--line-soft);display:flex;flex-direction:column;gap:2px}
+.drp-pre button{text-align:left;padding:8px 11px;border-radius:10px;font-size:13px;font-weight:500;color:var(--txt-2);transition:background .16s,color .16s}
+.drp-pre button:hover{background:var(--canvas);color:var(--txt)}
+.drp-pre button.on{background:var(--brand-wash);color:var(--brand-dark);font-weight:700}
+.drp-cals{padding:14px 18px 14px}
+.drp-months{display:flex;gap:26px}
+.cal{width:238px}
+.cal-h{display:flex;align-items:center;justify-content:space-between;height:30px;margin-bottom:4px;font-weight:700;font-size:13.5px}
+.cal-nav{width:30px;height:30px;border-radius:9px;color:var(--txt-3);font-size:17px;transition:background .16s,color .16s}
+.cal-nav:hover{background:var(--canvas);color:var(--txt)}
+.cal-g{display:grid;grid-template-columns:repeat(7,34px);row-gap:2px}
+.cal-wd{font-size:10.5px;color:var(--txt-3);text-align:center;font-weight:600;padding:5px 0}
+.cal-d{height:34px;font-size:12.5px;font-weight:500;font-variant-numeric:tabular-nums;padding:0}
+.cal-d span{display:flex;align-items:center;justify-content:center;width:32px;height:32px;margin:1px;border-radius:10px;transition:background .12s}
+.cal-d:hover:not(:disabled) span{background:var(--canvas)}
+.cal-d.in{background:var(--brand-wash)}
+.cal-d.s{background:linear-gradient(90deg,transparent 50%,var(--brand-wash) 50%)}
+.cal-d.e{background:linear-gradient(90deg,var(--brand-wash) 50%,transparent 50%)}
+.cal-d.s.e{background:none}
+.cal-d.s span,.cal-d.e span,.cal-d.s:hover span,.cal-d.e:hover span{background:var(--brand)!important;color:#fff;font-weight:700;box-shadow:var(--sh-brand)}
+.cal-d.now span{box-shadow:inset 0 0 0 1.5px var(--brand)}
+.cal-d:disabled{color:#D3CFCB;cursor:not-allowed}
+.cal-pad{height:34px}
+.drp-f{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line-soft);font-size:12.5px;color:var(--txt-2)}
+.drp-f b{color:var(--txt)}
+@media(max-width:960px){
+  .drp{position:fixed;left:10px;right:10px;top:auto;margin-top:8px;flex-direction:column;max-height:80vh;overflow:auto}
+  .drp-pre{width:auto;flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line-soft)}
+  .drp-months .cal:nth-child(2){display:none}
+  .drp-cals{display:flex;flex-direction:column;align-items:center}
+}
+
+/* ================= TRANG DATA ================= */
+.flt{display:flex;gap:9px;flex-wrap:wrap;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line-soft)}
+.flt .inp{width:auto;min-width:118px}
+.flt .grow{flex:1;min-width:200px}
+.cov{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px;padding:16px 18px}
+.cov-d{border-radius:12px;padding:8px 9px;background:var(--green-wash);line-height:1.3;cursor:pointer;
+  transition:box-shadow .2s,transform .2s;box-shadow:inset 0 0 0 1px transparent}
+.cov-d:hover{box-shadow:var(--sh-up);transform:translateY(-1px)}
+.cov-d b{font-size:12.5px;display:block;color:var(--txt)}
+.cov-d small{font-size:10.5px;color:var(--txt-3);display:block}
+.cov-d .n{font-size:11.5px;font-weight:700;color:var(--green)}
+.cov-d.low{background:var(--amber-wash)} .cov-d.low .n{color:#8A6008}
+.cov-d.miss{background:var(--red-wash)} .cov-d.miss .n{color:var(--red)}
+.cov-d.on{box-shadow:inset 0 0 0 2px var(--brand)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--txt-3)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+table.tb th.sort{cursor:pointer;user-select:none}
+table.tb th.sort:hover{color:var(--txt)}
+
 </style>
 </head>
 <body>
@@ -441,22 +498,28 @@ const pctDiff = (cur, prev) => (!prev ? null : ((cur - prev) / Math.abs(prev)) *
 const storeShort = (s) => String(s || '').replace(/^Phê La\s*[–-]\s*/i, '');
 
 /* ===================== KHOẢNG NGÀY ===================== */
-function presetRange(k) {
-  const t = dKey(new Date());
-  if (k === 'today') return { from: t, to: t };
-  if (k === 'yday') { const y = dAdd(t, -1); return { from: y, to: y }; }
-  if (k === '7d') return { from: dAdd(t, -6), to: t };
-  if (k === 'month') return { from: t.slice(0, 8) + '01', to: t };
-  return { from: t, to: t };
-}
+const today = () => dKey(new Date());
+const monthStart = (k) => k.slice(0, 8) + '01';
+const monthEnd = (k) => { const d = new Date(+k.slice(0, 4), +k.slice(5, 7), 0); return dKey(d); };
 const PRESETS = [
-  { k: 'today', l: 'Hôm nay' },
-  { k: 'yday', l: 'Hôm qua' },
-  { k: '7d', l: '7 ngày' },
-  { k: 'month', l: 'Tháng này' },
+  { k: 'today', l: 'Hôm nay', r: () => ({ from: today(), to: today() }) },
+  { k: 'yday', l: 'Hôm qua', r: () => ({ from: dAdd(today(), -1), to: dAdd(today(), -1) }) },
+  { k: '7d', l: '7 ngày qua', r: () => ({ from: dAdd(today(), -6), to: today() }) },
+  { k: '30d', l: '30 ngày qua', r: () => ({ from: dAdd(today(), -29), to: today() }) },
+  { k: 'month', l: 'Tháng này', r: () => ({ from: monthStart(today()), to: today() }) },
+  { k: 'lmonth', l: 'Tháng trước', r: () => { const e = dAdd(monthStart(today()), -1); return { from: monthStart(e), to: e }; } },
+  { k: 'year', l: 'Từ đầu năm', r: () => ({ from: today().slice(0, 4) + '-01-01', to: today() }) },
 ];
+const presetOf = (r) => (PRESETS.find(p => { const x = p.r(); return x.from === r.from && x.to === r.to; }) || {}).k || null;
+const rangeLabel = (r) => (r.from === r.to ? dFull(r.from) : dFull(r.from) + ' – ' + dFull(r.to));
+/* "16:10 22/09" */
+const stamp = (iso) => { const d = new Date(iso); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ' ' + dShort(dKey(d)); };
+const WD = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const wdOf = (k) => WD[new Date(k + 'T00:00:00').getDay()];
 
 /* ===================== ĐỌC DỮ LIỆU ===================== */
+/* Web chỉ đọc doc tóm tắt ngày d05Days/{ngày} (1 doc/ngày): tổng ngày, tổng từng cửa hàng
+   (stores{}) và tổng từng món cả chuỗi (items{}). Xem 1 tháng ~30 lượt đọc. */
 let FS = null, AUTH = null;
 function bootCloud() {
   if (FS) return;
@@ -464,30 +527,35 @@ function bootCloud() {
   AUTH = firebase.auth();
   FS = firebase.firestore();
 }
-async function loadRange(from, to) {
+async function loadDays(from, to) {
   if (LOCAL) {
-    const r = await fetch('/api/d05?from=' + from + '&to=' + to);
+    const r = await fetch('/api/days?from=' + from + '&to=' + to);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'HTTP ' + r.status);
     return r.json();
   }
-  const snap = await FS.collection('d05Daily').where('date', '>=', from).where('date', '<=', to).get();
+  const snap = await FS.collection('d05Days').where('date', '>=', from).where('date', '<=', to).get();
   return snap.docs.map((d) => {
     const x = d.data();
-    return { id: d.id, ...x, updatedAt: x.updatedAt ? x.updatedAt.toDate().toISOString() : null };
+    return { ...x, updatedAt: x.updatedAt ? x.updatedAt.toDate().toISOString() : null };
   });
 }
 
-/* Gộp các doc (cửa hàng × ngày) trong một khoảng thành bộ số cho trang */
-function summarize(docs) {
-  const s = { revenue: 0, bills: 0, quantity: 0, stores: new Set(), byDate: {}, byStore: {}, byItem: {}, byGroup: {}, last: null };
-  for (const d of docs) {
+/* Gộp các ngày trong một khoảng thành bộ số cho trang. `rows` = từng dòng cửa hàng × ngày
+   cho trang Data. */
+function summarize(days) {
+  const s = { revenue: 0, bills: 0, quantity: 0, stores: new Set(), byDate: {}, byStore: {}, byItem: {}, byGroup: {}, rows: [], days: {}, last: null };
+  for (const d of days) {
     s.revenue += d.revenue; s.bills += d.bills; s.quantity += d.quantity;
-    s.stores.add(d.storeId);
     s.byDate[d.date] = (s.byDate[d.date] || 0) + d.revenue;
-    const st = (s.byStore[d.storeId] ||= { id: d.storeId, name: d.storeName, revenue: 0, bills: 0, quantity: 0 });
-    st.revenue += d.revenue; st.bills += d.bills; st.quantity += d.quantity;
+    s.days[d.date] = d;
+    for (const [id, st] of Object.entries(d.stores || {})) {
+      s.stores.add(id);
+      const x = (s.byStore[id] ||= { id, name: st.name, revenue: 0, bills: 0, quantity: 0 });
+      x.revenue += st.revenue; x.bills += st.bills; x.quantity += st.quantity;
+      s.rows.push({ date: d.date, id, name: st.name, revenue: st.revenue, bills: st.bills, quantity: st.quantity, updatedAt: d.updatedAt });
+    }
     for (const it of Object.values(d.items || {})) {
-      const k = it.name || it.code;
+      const k = it.name || '?';
       const x = (s.byItem[k] ||= { name: k, group: it.group, revenue: 0, quantity: 0 });
       x.revenue += it.revenue; x.quantity += it.quantity;
       const g = it.group || 'Khác';
@@ -515,6 +583,9 @@ const Ic = {
   arrowU: mkIc(<><path d="M12 19V5M6 11l6-6 6 6" /></>),
   arrowD: mkIc(<><path d="M12 5v14M6 13l6 6 6-6" /></>),
   panel: mkIc(<><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9.5 4v16" /></>),
+  cal: mkIc(<><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>),
+  table: mkIc(<><rect x="3.5" y="4" width="17" height="16" rx="2.5" /><path d="M3.5 9.5h17M3.5 15h17M10 9.5V20" /></>),
+  down: mkIc(<><path d="M12 4v12" /><path d="M7 11l5 5 5-5" /><path d="M5 20h14" /></>),
 };
 
 /* =====================================================================
@@ -680,13 +751,119 @@ function Columns({ data, height }) {
   );
 }
 
+/* ===================== CHỌN KHOẢNG NGÀY =====================
+   Bấm ngày đầu -> rê chuột thấy trước dải ngày -> bấm ngày cuối (bấm lùi thì tự đảo lại).
+   Mốc nhanh bên trái áp dụng ngay; chọn tay thì bấm "Áp dụng". Không cho chọn ngày tương lai. */
+const MONTHS = ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'];
+const mShift = (ym, n) => { const d = new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + n, 1); return d.getFullYear() + '-' + pad2(d.getMonth() + 1); };
+
+function CalMonth({ ym, a, b, hover, onPick, onHover, onPrev, onNext }) {
+  const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+  const first = new Date(y, m - 1, 1).getDay();
+  const lead = (first + 6) % 7; // lịch Việt bắt đầu từ thứ Hai
+  const n = new Date(y, m, 0).getDate();
+  const t = today();
+  const lo = a && (b || hover) ? (a < (b || hover) ? a : (b || hover)) : a;
+  const hi = a && (b || hover) ? (a < (b || hover) ? (b || hover) : a) : a;
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(<div key={'p' + i} className="cal-pad" />);
+  for (let d = 1; d <= n; d++) {
+    const k = ym + '-' + pad2(d);
+    cells.push(
+      <button key={k} className={cls('cal-d', k === lo && 's', k === hi && 'e', lo && k > lo && k < hi && 'in', k === t && 'now')}
+        disabled={k > t} onClick={() => onPick(k)} onMouseEnter={() => onHover(k)}>
+        <span>{d}</span>
+      </button>
+    );
+  }
+  return (
+    <div className="cal">
+      <div className="cal-h">
+        {onPrev ? <button className="cal-nav" onClick={onPrev} aria-label="Tháng trước">‹</button> : <span style={{ width: 30 }} />}
+        <span>{MONTHS[m - 1]} {y}</span>
+        {onNext ? <button className="cal-nav" onClick={onNext} aria-label="Tháng sau">›</button> : <span style={{ width: 30 }} />}
+      </div>
+      <div className="cal-g" onMouseLeave={() => onHover(null)}>
+        {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(w => <div key={w} className="cal-wd">{w}</div>)}
+        {cells}
+      </div>
+    </div>
+  );
+}
+
+function DateRangePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [a, setA] = useState(value.from);
+  const [b, setB] = useState(value.to);
+  const [hover, setHover] = useState(null);
+  /* Tháng bên phải; bên trái luôn là tháng liền trước */
+  const [view, setView] = useState(value.to.slice(0, 7));
+  const box = useRef(null);
+
+  const show = () => {
+    setA(value.from); setB(value.to); setHover(null);
+    setView(value.to.slice(0, 7));
+    setOpen(true);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const off = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', off);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', off); document.removeEventListener('keydown', esc); };
+  }, [open]);
+
+  const pick = (k) => {
+    if (!a || b) { setA(k); setB(null); return; }
+    if (k < a) { setB(a); setA(k); } else setB(k);
+  };
+  const apply = (r) => { onChange(r); setOpen(false); };
+  const cur = presetOf(value);
+  const days = dDiff(value.from, value.to) + 1;
+  const canNext = view < today().slice(0, 7);
+
+  return (
+    <div className="drp-wrap" ref={box}>
+      <button className={cls('drp-btn', open && 'open')} onClick={() => (open ? setOpen(false) : show())}>
+        <Ic.cal size={15} />
+        {rangeLabel(value)}
+        <small>{cur ? PRESETS.find(p => p.k === cur).l : days + ' ngày'}</small>
+      </button>
+      {open && (
+        <div className="drp">
+          <div className="drp-pre">
+            {PRESETS.map(p => <button key={p.k} className={cls(cur === p.k && 'on')} onClick={() => apply(p.r())}>{p.l}</button>)}
+          </div>
+          <div className="drp-cals">
+            <div className="drp-months">
+              <CalMonth ym={mShift(view, -1)} a={a} b={b} hover={hover} onPick={pick} onHover={setHover} onPrev={() => setView(v => mShift(v, -1))} />
+              <CalMonth ym={view} a={a} b={b} hover={hover} onPick={pick} onHover={setHover} onNext={canNext ? () => setView(v => mShift(v, 1)) : null} />
+            </div>
+            <div className="drp-f">
+              {a && b ? <span>Từ <b>{dFull(a)}</b> đến <b>{dFull(b)}</b> · {dDiff(a, b) + 1} ngày</span>
+                : a ? <span>Từ <b>{dFull(a)}</b> — bấm ngày kết thúc (bấm lại cùng ngày để chọn 1 ngày)</span>
+                  : <span>Bấm ngày bắt đầu</span>}
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                <button className="btn sm" onClick={() => setOpen(false)}>Huỷ</button>
+                <button className="btn sm pri" disabled={!a || !b} onClick={() => apply({ from: a, to: b })}>Áp dụng</button>
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ===================== TRANG ===================== */
 function OverviewPage({ data }) {
   const { cur, prev, range, preset } = data;
   const [allStores, setAllStores] = useState(false);
-  const cmpLabel = preset === 'yday' ? 'so với hôm kia' : 'so với kỳ trước';
-  /* "Hôm nay" mới chạy được nửa ngày — so với cả ngày hôm qua là so khập khiễng, nên không so */
-  const cmp = preset !== 'today';
+  const len = dDiff(range.from, range.to) + 1;
+  const cmpLabel = len === 1 ? 'so với ngày trước đó' : 'so với ' + len + ' ngày trước đó';
+  /* Chỉ riêng hôm nay: mới chạy được nửa ngày, so với cả ngày hôm trước là so khập khiễng */
+  const cmp = !(range.from === range.to && range.to === today());
   const sub = (a, b) => (cmp ? <Delta cur={a} prev={b} label={cmpLabel} /> : null);
 
   const stores = Object.values(cur.byStore).sort((a, b) => b.revenue - a.revenue);
@@ -780,9 +957,176 @@ function StoresPage({ data }) {
   );
 }
 
+/* ===================== TRANG DATA =====================
+   Để đối soát: đã nạp tới ngày nào, ngày nào thiếu / ít cửa hàng bất thường, và bảng từng
+   dòng cửa hàng × ngày lọc được theo năm / tháng / ngày / chi nhánh, xuất CSV mở bằng Excel. */
+const PAGE_ROWS = 100;
+const noAccent = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase();
+
+function downloadCsv(name, rows) {
+  const esc = (v) => (/[",\n;]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
+  /* BOM để Excel đọc đúng tiếng Việt */
+  const csv = '﻿' + rows.map(r => r.map(esc).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function DataPage({ data }) {
+  const { cur, range } = data;
+  const [f, setF] = useState({ y: '', m: '', d: '', q: '' });
+  const [sort, setSort] = useState({ k: 'date', desc: true });
+  const [limit, setLimit] = useState(PAGE_ROWS);
+  const set = (p) => { setF(x => ({ ...x, ...p })); setLimit(PAGE_ROWS); };
+
+  /* ---- Tình trạng nạp: mỗi ngày trong khoảng một ô ----
+     Ít cửa hàng hơn 80% mức thường (trung vị) là đáng ngờ: có thể file xuất thiếu. */
+  const cov = useMemo(() => {
+    const list = [];
+    for (let k = range.from; k <= range.to; k = dAdd(k, 1)) list.push(k);
+    const counts = list.map(k => (cur.days[k] ? cur.days[k].storeCount : 0)).filter(Boolean).sort((a, b) => a - b);
+    const med = counts.length ? counts[Math.floor(counts.length / 2)] : 0;
+    const cells = list.map(k => {
+      const d = cur.days[k];
+      return { k, d, st: !d ? 'miss' : d.storeCount < med * 0.8 ? 'low' : 'ok' };
+    });
+    const have = cells.filter(c => c.d).map(c => c.k);
+    return { cells, med, missing: cells.filter(c => c.st === 'miss').map(c => c.k), low: cells.filter(c => c.st === 'low').map(c => c.k), latest: have[have.length - 1] || null };
+  }, [cur, range]);
+
+  const opts = useMemo(() => ({
+    y: [...new Set(cur.rows.map(r => r.date.slice(0, 4)))].sort(),
+    m: [...new Set(cur.rows.filter(r => !f.y || r.date.startsWith(f.y)).map(r => r.date.slice(5, 7)))].sort(),
+    d: [...new Set(cur.rows.filter(r => (!f.y || r.date.startsWith(f.y)) && (!f.m || r.date.slice(5, 7) === f.m)).map(r => r.date.slice(8, 10)))].sort(),
+  }), [cur, f.y, f.m]);
+
+  const rows = useMemo(() => {
+    const q = noAccent(f.q.trim());
+    const out = cur.rows.filter(r =>
+      (!f.y || r.date.slice(0, 4) === f.y) && (!f.m || r.date.slice(5, 7) === f.m) && (!f.d || r.date.slice(8, 10) === f.d)
+      && (!q || noAccent(r.name).includes(q) || String(r.id).includes(q)))
+      .map(r => ({ ...r, avg: r.bills ? r.revenue / r.bills : 0 }));
+    const dir = sort.desc ? -1 : 1;
+    out.sort((a, b) => {
+      const x = a[sort.k], y = b[sort.k];
+      const c = typeof x === 'string' ? x.localeCompare(y, 'vi') : x - y;
+      return (c || a.date.localeCompare(b.date) || String(a.name).localeCompare(b.name, 'vi')) * dir;
+    });
+    return out;
+  }, [cur, f, sort]);
+
+  const tot = rows.reduce((a, r) => ({ revenue: a.revenue + r.revenue, bills: a.bills + r.bills, quantity: a.quantity + r.quantity }), { revenue: 0, bills: 0, quantity: 0 });
+  const nDays = new Set(rows.map(r => r.date)).size, nStores = new Set(rows.map(r => r.id)).size;
+
+  const Th = ({ k, r, children }) => (
+    <th className={cls('sort', r && 'r')} style={sort.k === k ? { color: 'var(--txt)' } : null}
+      onClick={() => setSort(s => ({ k, desc: s.k === k ? !s.desc : k !== 'name' }))}>
+      {children}{sort.k === k ? (sort.desc ? ' ↓' : ' ↑') : ''}
+    </th>
+  );
+  const exportCsv = () => downloadCsv('phela-d05-' + range.from + '_' + range.to + '.csv', [
+    ['Năm', 'Tháng', 'Ngày', 'Thứ', 'Mã CH', 'Chi nhánh', 'Doanh thu', 'Hoá đơn', 'Số món', 'TB/hoá đơn'],
+    ...rows.map(r => [r.date.slice(0, 4), r.date.slice(5, 7), r.date.slice(8, 10), wdOf(r.date), r.id, r.name, n0(r.revenue), r.bills, r.quantity, n0(r.avg)]),
+  ]);
+
+  return (
+    <>
+      <div className="stats">
+        <Stat hero label="Đã nạp tới ngày" icon={<Ic.cal size={14} />} value={cov.latest ? dFull(cov.latest) : '—'}
+          sub={cur.last ? 'lần ghi gần nhất ' + stamp(cur.last) : null} />
+        <Stat label="Số ngày có dữ liệu" icon={<Ic.table size={14} />} value={(cov.cells.length - cov.missing.length) + ' / ' + cov.cells.length}
+          sub={cov.missing.length ? <span className="dn">thiếu {cov.missing.length} ngày</span> : <span className="up">đủ tất cả các ngày</span>} />
+        <Stat label="Cửa hàng / ngày (thường)" icon={<Ic.store size={14} />} value={money(cov.med)}
+          sub={cov.low.length ? <span style={{ color: '#8A6008', fontWeight: 700 }}>{cov.low.length} ngày ít bất thường</span> : 'không có ngày bất thường'} />
+        <Stat label="Tổng dòng dữ liệu" icon={<Ic.gauge size={14} />} value={money(cur.rows.length)} sub="mỗi dòng = 1 cửa hàng × 1 ngày" />
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <div><h3>Tình trạng nạp dữ liệu</h3><p>Mỗi ô là một ngày — bấm vào để lọc bảng bên dưới theo ngày đó</p></div>
+          <div className="sp legend">
+            <span><i style={{ background: 'var(--green-wash)', boxShadow: 'inset 0 0 0 1px var(--green)' }} />Đã nạp</span>
+            <span><i style={{ background: 'var(--amber-wash)', boxShadow: 'inset 0 0 0 1px #D98A0B' }} />Ít cửa hàng bất thường</span>
+            <span><i style={{ background: 'var(--red-wash)', boxShadow: 'inset 0 0 0 1px var(--red)' }} />Chưa có</span>
+          </div>
+        </div>
+        <div className="cov">
+          {cov.cells.map(c => {
+            const on = f.y === c.k.slice(0, 4) && f.m === c.k.slice(5, 7) && f.d === c.k.slice(8, 10);
+            return (
+              <div key={c.k} className={cls('cov-d', c.st !== 'ok' && c.st, on && 'on')}
+                title={c.d ? c.d.storeCount + ' cửa hàng · ' + money(c.d.revenue) + ' đ' : 'Chưa có dữ liệu'}
+                onClick={() => set(on ? { y: '', m: '', d: '' } : { y: c.k.slice(0, 4), m: c.k.slice(5, 7), d: c.k.slice(8, 10) })}>
+                <b>{dShort(c.k)} <small style={{ display: 'inline' }}>{wdOf(c.k)}</small></b>
+                <span className="n">{c.d ? c.d.storeCount + ' CH' : 'Chưa có'}</span>
+                <small>{c.d ? short(c.d.revenue) : '—'}</small>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <div><h3>Bảng dữ liệu</h3><p>{money(rows.length)} dòng · {nDays} ngày · {nStores} chi nhánh</p></div>
+          <div className="sp"><button className="btn sm" onClick={exportCsv} disabled={!rows.length}><Ic.down size={14} /> Xuất CSV</button></div>
+        </div>
+        <div className="flt">
+          <select className="inp" value={f.y} onChange={e => set({ y: e.target.value, m: '', d: '' })}>
+            <option value="">Tất cả năm</option>{opts.y.map(v => <option key={v} value={v}>Năm {v}</option>)}
+          </select>
+          <select className="inp" value={f.m} onChange={e => set({ m: e.target.value, d: '' })}>
+            <option value="">Tất cả tháng</option>{opts.m.map(v => <option key={v} value={v}>Tháng {+v}</option>)}
+          </select>
+          <select className="inp" value={f.d} onChange={e => set({ d: e.target.value })}>
+            <option value="">Tất cả ngày</option>{opts.d.map(v => <option key={v} value={v}>Ngày {+v}</option>)}
+          </select>
+          <input className="inp grow" placeholder="Tìm chi nhánh hoặc mã cửa hàng…" value={f.q} onChange={e => set({ q: e.target.value })} />
+          {(f.y || f.m || f.d || f.q) && <button className="btn sm" onClick={() => set({ y: '', m: '', d: '', q: '' })}>Bỏ lọc</button>}
+        </div>
+        {!rows.length ? <div className="empty">Không có dòng nào khớp bộ lọc.</div> : (
+          <div className="scroll-x">
+            <table className="tb">
+              <thead><tr>
+                <Th k="date">Năm</Th><th>Tháng</th><th>Ngày</th><th>Thứ</th><Th k="id">Mã CH</Th><Th k="name">Chi nhánh</Th>
+                <Th k="revenue" r>Doanh thu</Th><Th k="bills" r>Hoá đơn</Th><Th k="quantity" r>Số món</Th><Th k="avg" r>TB / hoá đơn</Th>
+              </tr></thead>
+              <tbody>
+                {rows.slice(0, limit).map(r => (
+                  <tr key={r.date + r.id}>
+                    <td>{r.date.slice(0, 4)}</td><td>{+r.date.slice(5, 7)}</td><td>{+r.date.slice(8, 10)}</td>
+                    <td style={{ color: 'var(--txt-3)' }}>{wdOf(r.date)}</td>
+                    <td className="mono" style={{ color: 'var(--txt-3)' }}>{r.id}</td>
+                    <td style={{ fontWeight: 600 }}>{storeShort(r.name)}</td>
+                    <td className="r">{money(r.revenue)}</td><td className="r">{money(r.bills)}</td>
+                    <td className="r">{money(r.quantity)}</td><td className="r">{money(r.avg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr>
+                <td colSpan={6}>Tổng {money(rows.length)} dòng</td>
+                <td className="r">{money(tot.revenue)}</td><td className="r">{money(tot.bills)}</td>
+                <td className="r">{money(tot.quantity)}</td><td className="r">{money(tot.bills ? tot.revenue / tot.bills : 0)}</td>
+              </tr></tfoot>
+            </table>
+            {rows.length > limit && (
+              <div style={{ padding: 14, textAlign: 'center' }}>
+                <button className="btn" onClick={() => setLimit(l => l + PAGE_ROWS * 5)}>Xem thêm ({money(rows.length - limit)} dòng nữa)</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 const PAGES = [
   { k: 'overview', l: 'Tổng quan', s: 'Tổng quan', ic: Ic.gauge, g: 'Bán hàng', t: ['Tổng quan bán hàng', 'Doanh thu, hoá đơn, cửa hàng và món — từ báo cáo D05 của Fabi'], C: OverviewPage },
   { k: 'stores', l: 'Cửa hàng', s: 'Cửa hàng', ic: Ic.store, g: 'Bán hàng', t: ['Bảng cửa hàng', 'Xếp hạng toàn bộ cửa hàng theo khoảng ngày đang chọn'], C: StoresPage },
+  { k: 'data', l: 'Data', s: 'Data', ic: Ic.table, g: 'Dữ liệu', t: ['Data', 'Đã nạp tới đâu, ngày nào thiếu — và bảng từng dòng để đối soát'], C: DataPage },
 ];
 
 /* ===================== KHUNG ===================== */
@@ -875,7 +1219,7 @@ function App() {
   const [shown, setShown] = useState('overview');
   const [leaving, setLeaving] = useState(false);
   const [navMin, setNavMin] = useState(true);
-  const [preset, setPreset] = useState('today');
+  const [range, setRange] = useState(() => PRESETS[0].r());
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -888,20 +1232,19 @@ function App() {
 
   /* Tải kỳ đang chọn + kỳ liền trước cùng độ dài (để so %) trong một lần đọc */
   const load = useCallback(async () => {
-    const range = presetRange(preset);
     const len = dDiff(range.from, range.to) + 1;
     const prevRange = { from: dAdd(range.from, -len), to: dAdd(range.from, -1) };
     setBusy(true); setErr('');
     try {
-      const docs = await loadRange(prevRange.from, range.to);
+      const docs = await loadDays(prevRange.from, range.to);
       setData({
-        range, preset,
+        range, preset: presetOf(range),
         cur: summarize(docs.filter(d => d.date >= range.from)),
         prev: summarize(docs.filter(d => d.date < range.from)),
       });
     } catch (e) { setErr(e.message); }
     setBusy(false);
-  }, [preset]);
+  }, [range]);
   useEffect(() => { if (user) load(); }, [user, load]);
 
   useEffect(() => {
@@ -921,7 +1264,6 @@ function App() {
 
   const cur = PAGES.find(p => p.k === shown);
   const Body = cur.C;
-  const last = data && data.cur.last ? new Date(data.cur.last) : null;
 
   return (
     <div className={cls('shell', navMin && 'nav-min')}>
@@ -936,11 +1278,9 @@ function App() {
           </div>
           <div className="top-right">
             {LOCAL && <span className="tag t-amber">XEM TRƯỚC</span>}
-            <div className="seg">
-              {PRESETS.map(p => <button key={p.k} className={cls(preset === p.k && 'on')} onClick={() => setPreset(p.k)}>{p.l}</button>)}
-            </div>
+            <DateRangePicker value={range} onChange={setRange} />
             <button className="top-date" onClick={load} title="Tải lại">
-              {busy ? 'Đang tải…' : last ? 'Cập nhật ' + pad2(last.getHours()) + ':' + pad2(last.getMinutes()) + ' ' + dShort(dKey(last)) : 'Chưa có dữ liệu'}
+              {busy ? 'Đang tải…' : data && data.cur.last ? 'Cập nhật ' + stamp(data.cur.last) : 'Chưa có dữ liệu'}
             </button>
           </div>
         </div>

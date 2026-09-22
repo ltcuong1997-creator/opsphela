@@ -1,7 +1,9 @@
 /**
  * Server xem trước chạy trên máy (chỉ nghe 127.0.0.1): phục vụ thư mục ../public
- * và cho trang web đọc dữ liệu Firestore qua /api/d05 bằng service account
- * trong sync/.env - để xem thử giao diện khi chưa tạo tài khoản đăng nhập.
+ * và cho trang web đọc Firestore bằng service account trong sync/.env - để xem
+ * thử giao diện khi chưa tạo tài khoản đăng nhập.
+ *   /api/days?from&to  tóm tắt ngày (d05Days) - trang web dùng cái này
+ *   /api/d05?from&to   chi tiết từng cửa hàng-ngày (d05Daily, nặng)
  * Bản deploy thật trên Firebase Hosting KHÔNG dùng file này: ở đó trang web
  * đăng nhập Firebase Auth rồi đọc thẳng Firestore.
  *
@@ -29,6 +31,15 @@ async function d05(from, to) {
   });
 }
 
+// Doc tóm tắt ngày (d05Days) - trang web dùng cái này, nhẹ hơn d05Daily nhiều
+async function days(from, to) {
+  const snap = await db.collection('d05Days').where('date', '>=', from).where('date', '<=', to).get();
+  return snap.docs.map((d) => {
+    const { updatedAt, ...rest } = d.data();
+    return { ...rest, updatedAt: updatedAt ? updatedAt.toDate().toISOString() : null };
+  });
+}
+
 function send(res, code, body, type) {
   res.writeHead(code, { 'Content-Type': type || 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(body);
@@ -38,11 +49,11 @@ http
   .createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (url.pathname === '/api/d05') {
+      if (url.pathname === '/api/days' || url.pathname === '/api/d05') {
         const from = url.searchParams.get('from');
         const to = url.searchParams.get('to');
         if (!DATE_RE.test(from) || !DATE_RE.test(to)) return send(res, 400, '{"error":"from/to phải dạng YYYY-MM-DD"}');
-        return send(res, 200, JSON.stringify(await d05(from, to)));
+        return send(res, 200, JSON.stringify(url.pathname === '/api/days' ? await days(from, to) : await d05(from, to)));
       }
       const file = path.normalize(path.join(PUBLIC_DIR, url.pathname === '/' ? 'index.html' : url.pathname));
       if (!file.startsWith(PUBLIC_DIR)) return send(res, 403, 'forbidden', 'text/plain');
