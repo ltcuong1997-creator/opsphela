@@ -12,6 +12,12 @@
  *     cửa hàng (stores{}), tổng từng món cả chuỗi (items{}) - web đọc 1 doc/ngày
  *     thay vì ~90 doc nặng, xem 1 tháng chỉ tốn ~30 lượt đọc.
  *
+ * Mốc EXCEL_UNTIL: các ngày tới hết mốc lấy số từ báo cáo nội bộ Excel (hist-to-days.js
+ * chép histDays -> d05Days); Fabi chỉ tự nạp các ngày SAU mốc. Để cùng cách tính với
+ * Excel và target, d05Days của ngày sau mốc ghi doanh thu TRƯỚC VAT:
+ *   revenue = (doanh thu Fabi + hoa hồng app) / 1,08     (số gốc giữ ở revenueGross)
+ * Riêng doanh thu từng món (items) vẫn là số gốc Fabi.
+ *
  * Mỗi lần ghi, đọc 1 doc syncState của ngày đó (1 lượt đọc), so hash từng
  * cửa hàng, chỉ ghi các cửa hàng có số liệu khác đi + cập nhật lại syncState.
  * Không có gì đổi thì không ghi gì cả.
@@ -27,6 +33,13 @@ const COLLECTION = 'd05Daily';
 const STATE_COLLECTION = 'syncState';
 const DAYS_COLLECTION = 'd05Days';
 const STORES_COLLECTION = 'stores';
+
+// Tới hết ngày này: số trên d05Days lấy từ Excel, không để Fabi ghi đè (xem đầu file).
+const EXCEL_UNTIL = '2026-09-20';
+const VAT = 1.08;
+// Nguồn đơn mà Fabi ghi doanh thu ĐÃ trừ hoa hồng app (Grab, Ahamove thì không) -
+// đối chiếu với báo cáo nội bộ ngày 01/09/2026.
+const COMMISSION_SOURCES = ['shopeefood', 'befood', 'xanh-ngon'];
 
 // Tên cột trong file Excel D05 (khác bảng trên web: "Ngày" thay cho "Thời
 // gian", "Hoá đơn" thay cho "Mã hoá đơn", và có thêm cột "Cửa hàng").
@@ -262,6 +275,11 @@ async function writeChanged(db, docs) {
   let written = 0;
   let skipped = 0;
   const changedDocs = [];
+  const locked = Object.keys(byDate).filter((d) => d <= EXCEL_UNTIL);
+  if (locked.length && !process.argv.includes('--force')) {
+    throw new Error(`Ngày ${locked.join(', ')} nằm trong khoảng lấy số từ Excel (tới ${EXCEL_UNTIL}) - không nạp Fabi đè lên. `
+      + 'Thêm --force nếu chỉ muốn lưu món/PTTT gốc vào d05Daily (d05Days vẫn giữ số Excel).');
+  }
   for (const [date, dayDocs] of Object.entries(byDate)) {
     const stateRef = db.collection(STATE_COLLECTION).doc(`d05_${date}`);
     const oldHashes = (await stateRef.get()).data()?.hashes || {};
@@ -298,7 +316,7 @@ async function writeChanged(db, docs) {
       }
       if (i + 100 >= changed.length) {
         batch.set(stateRef, { hashes: newHashes });
-        batch.set(db.collection(DAYS_COLLECTION).doc(date), {
+        if (date > EXCEL_UNTIL) batch.set(db.collection(DAYS_COLLECTION).doc(date), {
           ...summary,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -343,14 +361,37 @@ function etSplit(sources) {
   return { et, dlv };
 }
 
+// Doc cửa hàng (số gốc Fabi) -> số trước VAT như báo cáo nội bộ. Hoa hồng chỉ có tổng
+// theo cửa hàng nên chia cho các nguồn ShopeeFood/BeFood/Xanh Ngon theo tỉ lệ doanh thu;
+// PTTT và khu vực thì nhân cùng tỉ lệ net/gốc của cửa hàng. Ngày nạp bằng bản script cũ
+// chưa có hoa hồng -> chỉ chia 1,08 (thấp hơn thực tế một chút), đánh dấu noCommission.
+function toNet(d) {
+  const gross = d.revenue;
+  const com = d.commission || 0;
+  const net = (gross + com) / VAT;
+  const f = gross ? net / gross : 1 / VAT;
+  const src = d.sources || {};
+  const platform = COMMISSION_SOURCES.reduce((a, k) => a + ((src[k] && src[k].revenue) || 0), 0);
+  const sources = {};
+  for (const [k, v] of Object.entries(src)) {
+    const share = COMMISSION_SOURCES.includes(k) && platform ? com * v.revenue / platform : 0;
+    sources[k] = { ...v, revenue: Math.round((v.revenue + share) / VAT) };
+  }
+  const scale = (map) => Object.fromEntries(Object.entries(map || {}).map(([k, v]) => [k, { ...v, revenue: Math.round(v.revenue * f) }]));
+  return { ...d, revenue: Math.round(net), revenueGross: gross, sources, payments: scale(d.payments), areas: scale(d.areas) };
+}
+
 // Gộp các doc cửa hàng của 1 ngày thành doc tóm tắt d05Days/{date}.
 function daySummary(date, dayDocs) {
   const s = {
-    date, revenue: 0, bills: 0, quantity: 0, storeCount: 0,
+    date, basis: 'net', revenueGross: 0, noCommission: 0, revenue: 0, bills: 0, quantity: 0, storeCount: 0,
     discount: 0, serviceFee: 0, tax: 0, shipFee: 0, commission: 0,
     stores: {}, items: {}, sources: {}, payments: {}, areas: {},
   };
-  for (const d of Object.values(dayDocs)) {
+  for (const raw of Object.values(dayDocs)) {
+    const d = toNet(raw);
+    if (raw.commission == null) s.noCommission++;
+    s.revenueGross += d.revenueGross;
     s.revenue += d.revenue;
     s.bills += d.bills;
     s.quantity += d.quantity;
@@ -365,7 +406,8 @@ function daySummary(date, dayDocs) {
       ...etSplit(d.sources),
     };
     for (const [k, it] of Object.entries(d.items || {})) {
-      const x = (s.items[k] ||= { name: it.name, group: it.group, type: it.type, quantity: 0, revenue: 0 });
+      // Doc nạp bằng bản script cũ không có nhóm/loại món -> null (Firestore không nhận undefined)
+      const x = (s.items[k] ||= { name: it.name, group: it.group || null, type: it.type || null, quantity: 0, revenue: 0 });
       x.quantity += it.quantity;
       x.revenue += it.revenue;
     }
@@ -385,6 +427,7 @@ function daySummary(date, dayDocs) {
 // hoặc khi nghi ngờ tóm tắt lệch). Mỗi ngày: đọc ~90 doc, ghi 1 doc.
 async function rebuildDaySummaries(db, dates) {
   for (const date of dates) {
+    if (date <= EXCEL_UNTIL) { console.log(`${date}: bỏ qua - ngày lấy số từ Excel`); continue; }
     const snap = await db.collection(COLLECTION).where('date', '==', date).get();
     if (snap.empty) continue;
     const dayDocs = {};
@@ -412,4 +455,4 @@ async function loadStoreIds(db) {
   return map;
 }
 
-module.exports = { loadStoreIds, ALIASES, loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize, rebuildDaySummaries, COL };
+module.exports = { EXCEL_UNTIL, ET_KEYS, toNet, daySummary, loadStoreIds, ALIASES, loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize, rebuildDaySummaries, COL };
