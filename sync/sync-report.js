@@ -80,6 +80,14 @@ async function main() {
           try {
             await syncDay(p, day, db);
           } catch (err) {
+            // Mạng chậm: Firestore đã ghi xong nhưng máy không kịp nhận phản hồi -> báo
+            // DEADLINE_EXCEEDED dù dữ liệu đủ. syncState ghi ở batch cuối cùng của ngày,
+            // có nó nghĩa là cả ngày đã vào hết.
+            if (!DRY_RUN && /DEADLINE_EXCEEDED/.test(err.message)
+              && (await db.collection('syncState').doc(`d05_${day}`).get().then((d) => d.exists, () => false))) {
+              console.log(`[${day}] ✅ Đã ghi (báo quá giờ nhưng kiểm tra lại thấy đủ).`);
+              continue;
+            }
             console.error(`❌ ${day}: ${err.message.split('\n')[0]}`);
             failed.push(day);
             await goToReport(p).catch(() => {});
