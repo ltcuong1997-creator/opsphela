@@ -65,22 +65,83 @@ function initFirebase() {
   return admin.firestore();
 }
 
-// File D05 "tất cả cửa hàng": mỗi cửa hàng có bán là 1 sheet, tên sheet dạng
-// "108654-Phê La – 145 Trích..." (mã cửa hàng trên Fabi + tên bị cắt). Dòng
-// cuối mỗi sheet là dòng tổng cộng (không có Ngày) - aggregate() tự bỏ qua.
-// Ngoài ra có 1 sheet "Tất cả cửa hàng" chứa LẠI toàn bộ dòng của các sheet
-// trên - phải bỏ, không thì doanh thu bị nhân đôi. Nếu file chỉ có đúng sheet
-// đó (xuất 1 cửa hàng / kiểu khác) thì mới dùng nó.
+// Tên cột có thể gặp cho từng trường (so khớp NGUYÊN tên sau khi bỏ dấu, nên "Giảm giá VAT"
+// không bị nhầm thành "Giảm giá", "Tổng tiền (không bao gồm VAT)" không nhầm "Tổng tiền").
+// Thêm tên mới vào đây nếu file Excel dùng tên cột khác.
+const ALIASES = {
+  time: ['Ngày', 'Thời gian', 'Ngày bán', 'Ngày tạo', 'Ngày giờ'],
+  bill: ['Hoá đơn', 'Hóa đơn', 'Mã hoá đơn', 'Mã hóa đơn', 'Mã HĐ'],
+  itemCode: ['Mã hàng', 'Mã món'],
+  itemName: ['Tên hàng', 'Tên món'],
+  group: ['Nhóm món', 'Nhóm hàng'],
+  type: ['Loại món', 'Loại hàng'],
+  quantity: ['Số lượng', 'SL'],
+  revenue: ['Tổng tiền'],
+  store: ['Cửa hàng', 'Chi nhánh', 'Tên cửa hàng'],
+  source: ['Nguồn', 'Nguồn đơn', 'Nguồn đơn hàng'],
+  payment: ['PTTT', 'Phương thức thanh toán', 'Hình thức thanh toán'],
+  area: ['Khu vực'],
+  discount: ['Giảm giá'],
+  serviceFee: ['Phí dịch vụ'],
+  tax: ['Thuế'],
+  shipFee: ['Phí ship', 'Phí giao hàng'],
+  commission: ['Hoa hồng'],
+};
+const REQUIRED = ['time', 'bill', 'quantity', 'revenue'];
+
+// Tìm dòng tiêu đề (trong 30 dòng đầu, dòng khớp nhiều tên cột nhất) và vị trí từng trường.
+function detectColumns(matrix) {
+  let best = { row: -1, map: {}, score: 0 };
+  for (let r = 0; r < Math.min(matrix.length, 30); r++) {
+    const heads = (matrix[r] || []).map((h) => (h == null ? '' : keyOf(h)));
+    const map = {};
+    for (const [field, names] of Object.entries(ALIASES)) {
+      const i = heads.findIndex((h) => names.some((n) => keyOf(n) === h));
+      if (i >= 0) map[field] = i;
+    }
+    const score = Object.keys(map).length;
+    if (score > best.score) best = { row: r, map, score };
+  }
+  return best;
+}
+
+// Đọc mọi file Excel bán hàng kiểu D05 thành các dòng có key = tên cột chuẩn (COL), dù file
+// đặt tên cột khác hay có vài dòng tiêu đề phụ ở trên. rows.info cho biết đã nhận ra
+// những cột nào, thiếu cột nào, đọc những sheet nào.
+//
+// File D05 "tất cả cửa hàng" của Fabi: mỗi cửa hàng có bán là 1 sheet, tên sheet dạng
+// "108654-Phê La – 145 Trích..." (mã cửa hàng trên Fabi + tên bị cắt). Dòng cuối mỗi sheet
+// là dòng tổng cộng (không có Ngày) - aggregate() tự bỏ qua. Ngoài ra có 1 sheet "Tất cả
+// cửa hàng" chứa LẠI toàn bộ dòng của các sheet trên - phải bỏ, không thì doanh thu bị nhân
+// đôi. File không có sheet theo mã cửa hàng thì đọc mọi sheet có đủ cột.
 function readRows(filePath) {
   const workbook = XLSX.readFile(filePath, { cellDates: true });
   const storeSheets = workbook.SheetNames.filter((n) => /^\d+-/.test(n));
   const sheets = storeSheets.length ? storeSheets : workbook.SheetNames;
-  return sheets.flatMap((name) => {
+  const rows = [];
+  const info = { sheets: 0, skippedSheets: [], found: new Set(), missing: [] };
+  for (const name of sheets) {
+    const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null });
+    const { row, map } = detectColumns(matrix);
+    if (REQUIRED.some((f) => map[f] == null)) {
+      info.skippedSheets.push(name);
+      continue;
+    }
+    info.sheets++;
+    Object.keys(map).forEach((f) => info.found.add(f));
     const storeId = name.match(/^(\d+)-/)?.[1] || null;
-    return XLSX.utils
-      .sheet_to_json(workbook.Sheets[name], { defval: null })
-      .map((row) => ({ ...row, __storeId: storeId }));
-  });
+    for (let r = row + 1; r < matrix.length; r++) {
+      const line = matrix[r];
+      if (!line) continue;
+      const obj = { __storeId: storeId };
+      for (const [field, i] of Object.entries(map)) obj[COL[field]] = line[i];
+      rows.push(obj);
+    }
+  }
+  info.found = [...info.found];
+  info.missing = Object.keys(ALIASES).filter((f) => !info.found.includes(f));
+  rows.info = info;
+  return rows;
 }
 
 function toNumber(v) {
@@ -116,7 +177,7 @@ function keyOf(s) {
 }
 
 // rows (từng dòng món trong hoá đơn) -> { [docId]: doc } gộp theo ngày × cửa hàng.
-function aggregate(rows) {
+function aggregate(rows, storeIdByName = {}) {
   const docs = {};
   const bills = {};
   const sourceBills = {}; // id -> { sourceKey: Set(billId) } - để tính AOV riêng theo nguồn đơn
@@ -124,7 +185,9 @@ function aggregate(rows) {
     const date = normalizeDate(row[COL.time]);
     if (!date) continue;
     const storeName = String(row[COL.store] || 'Không rõ').trim();
-    const storeId = row.__storeId || keyOf(storeName);
+    // File không có sheet theo mã cửa hàng: tra mã Fabi theo tên (danh mục stores), không thì
+    // cùng 1 cửa hàng sẽ ra 2 doc khác nhau (mã số và tên-không-dấu).
+    const storeId = row.__storeId || storeIdByName[keyOf(storeName)] || keyOf(storeName);
     const id = `${date}_${storeId}`;
     const doc = (docs[id] ||= {
       date, storeId, storeName, revenue: 0, quantity: 0, bills: 0,
@@ -341,4 +404,12 @@ function summarize(docs) {
   return `${list.length} cửa hàng-ngày, ngày ${dates[0]} → ${dates[dates.length - 1]}, tổng tiền ${revenue.toLocaleString('vi-VN')} ₫`;
 }
 
-module.exports = { loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize, rebuildDaySummaries, COL };
+// { [tên cửa hàng không dấu]: mã Fabi } từ danh mục stores - dùng khi nạp file không có mã.
+async function loadStoreIds(db) {
+  const snap = await db.collection(STORES_COLLECTION).get();
+  const map = {};
+  snap.forEach((d) => { if (d.data().storeName) map[keyOf(d.data().storeName)] = d.id; });
+  return map;
+}
+
+module.exports = { loadStoreIds, ALIASES, loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize, rebuildDaySummaries, COL };
