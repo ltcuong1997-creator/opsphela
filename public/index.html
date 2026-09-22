@@ -417,6 +417,20 @@ table.tb tfoot td{padding:11px 12px;border-top:2px solid var(--line);font-weight
   .drp-cals{display:flex;flex-direction:column;align-items:center}
 }
 
+/* ================= NHẮC CÓ BẢN MỚI =================
+   Thẻ nổi giữa mép dưới, trượt lên khi phát hiện bản deploy mới. */
+.upd{position:fixed;left:50%;bottom:22px;z-index:90;display:flex;align-items:center;gap:12px;
+  background:var(--ink);color:#fff;border-radius:16px;padding:10px 10px 10px 16px;font-size:13px;
+  box-shadow:0 10px 30px rgba(20,24,28,.28),0 30px 70px rgba(20,24,28,.22);
+  transform:translateX(-50%);animation:updIn .5s var(--ease) backwards;max-width:calc(100vw - 28px)}
+.upd b{font-weight:700}
+.upd small{color:#9AA4AD;font-size:12px;display:block}
+.upd .btn.pri{padding:7px 14px}
+.upd .x{margin-left:0;color:#8D97A0;width:30px;height:30px}
+.upd .x:hover{background:rgba(255,255,255,.08);color:#fff}
+@keyframes updIn{from{opacity:0;transform:translate(-50%,24px) scale(.97)}to{opacity:1;transform:translateX(-50%)}}
+@media(max-width:960px){ .upd{bottom:calc(76px + env(safe-area-inset-bottom))} }
+
 /* ================= TRANG DATA ================= */
 .flt{display:flex;gap:9px;flex-wrap:wrap;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line-soft)}
 .flt .inp{width:auto;min-width:118px}
@@ -1213,6 +1227,45 @@ function Splash({ title, sub, action }) {
   );
 }
 
+/* ===================== NHẮC CÓ BẢN MỚI =====================
+   index.html được phục vụ kèm no-cache, nên tải lại nó là biết server đang có bản nào.
+   So với bản lúc mở trang: khác là có deploy mới -> hiện thanh nhắc tải lại. Kiểm tra mỗi
+   2 phút và mỗi lần quay lại tab (hay để tab mở cả ngày). */
+function useNewVersion() {
+  const [fresh, setFresh] = useState(false);
+  useEffect(() => {
+    let base = null, stop = false;
+    const sig = (t) => { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return t.length + ':' + h; };
+    const check = async () => {
+      /* Lần đầu luôn chạy để ghi lại bản gốc (kể cả mở trang ở tab nền); các lần sau
+         bỏ qua khi tab đang ẩn - quay lại tab là visibilitychange gọi kiểm tra ngay. */
+      if (stop || (base !== null && document.hidden)) return;
+      try {
+        const r = await fetch('/index.html?v=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) return;
+        const s = sig(await r.text());
+        if (base === null) base = s;
+        else if (s !== base) setFresh(true);
+      } catch (e) { /* mất mạng thì thôi, lần sau thử lại */ }
+    };
+    check();
+    const t = setInterval(check, 120000);
+    document.addEventListener('visibilitychange', check);
+    return () => { stop = true; clearInterval(t); document.removeEventListener('visibilitychange', check); };
+  }, []);
+  return [fresh, () => setFresh(false)];
+}
+
+function UpdateBar({ onClose }) {
+  return (
+    <div className="upd" role="status">
+      <div><b>Đã có bản cập nhật mới</b><small>Tải lại để dùng phiên bản mới nhất</small></div>
+      <button className="btn pri" onClick={() => location.reload()}>Tải lại</button>
+      <button className="x" onClick={onClose} aria-label="Để sau">✕</button>
+    </div>
+  );
+}
+
 function App() {
   const [user, setUser] = useState(LOCAL ? { email: 'localhost' } : undefined);
   const [page, setPage] = useState('overview');
@@ -1221,6 +1274,7 @@ function App() {
   const [navMin, setNavMin] = useState(true);
   const [range, setRange] = useState(() => PRESETS[0].r());
   const [data, setData] = useState(null);
+  const [fresh, hideFresh] = useNewVersion();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -1291,6 +1345,7 @@ function App() {
               : <Body data={data} />}
         </div>
       </div>
+      {fresh && <UpdateBar onClose={hideFresh} />}
       <div className="mob-bar">
         {PAGES.map(p => (
           <button key={p.k} className={cls(page === p.k && 'on')} onClick={() => setPage(p.k)}>
