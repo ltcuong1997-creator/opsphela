@@ -117,10 +117,31 @@ async function main() {
 }
 
 // day = null: giữ bộ lọc mặc định (hôm nay).
+// File xlsx là zip: phải có "End of central directory" (PK\x05\x06) trong 64 KB cuối.
+// Mạng đứt giữa chừng thì file vẫn nằm đó nhưng cụt đuôi, xlsx báo "Unsupported ZIP
+// Compression method NaN" - bắt sớm ở đây để tải lại thay vì bỏ cả ngày.
+function zipLooksComplete(filePath) {
+  const size = fs.statSync(filePath).size;
+  if (size < 1000) return false;
+  const len = Math.min(size, 65557);
+  const buf = Buffer.alloc(len);
+  const fd = fs.openSync(filePath, 'r');
+  try { fs.readSync(fd, buf, 0, len, size - len); } finally { fs.closeSync(fd); }
+  return buf.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+}
+
 async function syncDay(page, day, db) {
   const tag = day || 'hôm nay';
-  if (day) await pickDay(page, day);
-  const filePath = await exportAndDownload(page, day);
+  let filePath = null;
+  for (let attempt = 1; ; attempt++) {
+    if (day) await pickDay(page, day);
+    filePath = await exportAndDownload(page, day);
+    if (zipLooksComplete(filePath)) break;
+    try { fs.unlinkSync(filePath); } catch (e) { /* kệ */ }
+    if (attempt >= 3) throw new Error('File tải về bị cụt 3 lần liên tiếp (mạng đứt giữa chừng)');
+    console.log(`[${tag}] file tải về bị cụt, tải lại (lần ${attempt})…`);
+    await page.waitForTimeout(3000 * attempt);
+  }
   const docs = aggregate(readRows(filePath));
   console.log(`[${tag}] ${path.basename(filePath)}: ${PUBLIC_LOG ? Object.keys(docs).length + ' cửa hàng-ngày' : summarize(docs)}`);
   if (DRY_RUN) return;
@@ -145,8 +166,23 @@ function assertEnv(names) {
   if (missing.length) throw new Error(`Thiếu biến môi trường: ${missing.join(', ')}`);
 }
 
-async function login(page) {
-  await page.goto(`${FABI_BASE_URL}/login`, { waitUntil: 'networkidle' });
+// Fabi thỉnh thoảng tải chậm hoặc chối đăng nhập một lần; hỏng bước này là mất cả mẻ
+// nạp bù nên thử lại vài lần trước khi bỏ cuộc.
+async function login(page, times = 4) {
+  for (let i = 1; ; i++) {
+    try { return await loginOnce(page); } catch (e) {
+      if (i >= times) throw e;
+      console.log(`Đăng nhập Fabi lỗi (lần ${i}): ${String(e.message).split(String.fromCharCode(10))[0].slice(0, 70)} - thử lại…`);
+      await page.waitForTimeout(5000 * i);
+    }
+  }
+}
+
+async function loginOnce(page) {
+  // KHÔNG chờ 'networkidle': trang Fabi có analytics chạy nền liên tục, mạng chậm là
+  // không bao giờ đứng yên -> chờ ô nhập email hiện ra là đủ.
+  await page.goto(`${FABI_BASE_URL}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForSelector('input[name="email_input"]', { timeout: 60000 });
   await page.fill('input[name="email_input"]', process.env.FABI_EMAIL);
   await page.fill('input[type="password"]', process.env.FABI_PASSWORD);
   await page.click('button[type="submit"]');

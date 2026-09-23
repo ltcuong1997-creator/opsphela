@@ -1265,12 +1265,19 @@ function sliceOf(s, meta, f) {
   }
   const byDate = {};
   for (const [date, day] of Object.entries(s.days || {})) {
-    let rev = 0, comm = 0, bills = 0;
+    let rev = 0, comm = 0, bills = 0, etR = 0, etB = 0, dR = 0, dB = 0;
     for (const [id, st] of Object.entries(day.stores || {})) {
       if (!keep(id)) continue;
       rev += st.revenue; comm += st.commission || 0; bills += st.bills;
+      etR += (st.et && st.et.revenue) || 0; etB += (st.et && st.et.bills) || 0;
+      dR += (st.dlv && st.dlv.revenue) || 0; dB += (st.dlv && st.dlv.bills) || 0;
     }
-    byDate[date] = { revenue: adjRevenue(rev, comm), bills };
+    const revenue = adjRevenue(rev, comm);
+    byDate[date] = {
+      revenue, bills, aov: aovOf(revenue, bills),
+      aovET: etB ? aovOf(etR, etB) : null,
+      aovD: dB ? aovOf(dR, dB) : null,
+    };
   }
   const revenue = adjRevenue(t.raw, t.commission);
   const nDays = Object.keys(byDate).filter((d) => byDate[d].revenue > 0).length;
@@ -1683,6 +1690,34 @@ function ItemStoreCard({ range, itemNames, keysByName, meta, keep, dayCount }) {
 
 /* Ba chuỗi AOV (chung / ET / D) cạnh nhau cho mỗi nhóm - dùng chung cho Summary và Weekly.
    cmpLabel: nhãn kỳ so sánh hiện trong tooltip ("kỳ trước" / "tuần trước"). */
+/* Ba đường AOV (chung / ET / D) theo TỪNG NGÀY của kỳ - thay cho biểu đồ luỹ kế/nhịp
+   target. `labelOf` đổi mã ngày thành nhãn trục (ngày/tháng ở Summary, thứ ở Weekly). */
+function aovDayOption(dayKeys, byDate, labelOf) {
+  const val = (k, f) => (byDate[k] && byDate[k][f] != null ? Math.round(byDate[k][f]) : null);
+  const line = (name, key, color, dash) => ({
+    name, type: 'line', smooth: 0.25, symbol: 'circle', symbolSize: 5, connectNulls: true,
+    lineStyle: { width: 2.2, color, type: dash || 'solid' }, itemStyle: { color },
+    data: dayKeys.map((k) => val(k, key)),
+  });
+  return {
+    ...ANIM,
+    grid: { left: 56, right: 18, top: 28, bottom: 30 },
+    tooltip: {
+      ...TIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: INK.axis, width: 1 } },
+      formatter: (ps) => `<b>${dFull(dayKeys[ps[0].dataIndex])}</b><br/>`
+        + ps.map((x) => `${x.marker} ${x.seriesName} <b>${x.value == null ? '—' : money(x.value) + ' đ'}</b>`).join('<br/>'),
+    },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 3, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: { type: 'category', data: dayKeys.map(labelOf), boundaryGap: false, ...AXIS_STYLE, splitLine: { show: false } },
+    yAxis: { type: 'value', scale: true, ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+    series: [
+      line('AOV chung', 'aov', BRAND_HEX),
+      line('AOV-ET', 'aovET', SERIES[0], 'dashed'),
+      line('AOV-D', 'aovD', SERIES[2], 'dashed'),
+    ],
+  };
+}
+
 /* Ba đường AOV (chung / ET / D) theo danh sách nhóm - cùng kiểu với thẻ "Ba đường AOV
    theo tháng", chỉ thay trục ngang 12 tháng bằng tỉnh/TP hoặc AM. */
 function aovDimLineOption(rows, cmpLabel) {
@@ -1905,26 +1940,8 @@ function OverviewPage({ data }) {
   }), [dayKeys, dayRevenue, dayTarget, slice]);
 
   /* ---- Luỹ kế vs target ---- */
-  const cumOption = useMemo(() => {
-    let acc = 0;
-    const cum = dayRevenue.map((v) => (acc += v));
-    const pace = dayKeys.map((_, i) => (targetTotal ? targetTotal / rangeDays * (i + 1) : 0));
-    return {
-      ...ANIM,
-      grid: { left: 52, right: 18, top: 28, bottom: 30 },
-      tooltip: { ...TIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: INK.axis, width: 1 } },
-        formatter: (ps) => `<b>${dFull(dayKeys[ps[0].dataIndex])}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${money(p.value)} đ</b>`).join('<br/>') },
-      legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 3, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
-      xAxis: { type: 'category', data: dayKeys.map(dShort), boundaryGap: false, ...AXIS_STYLE, splitLine: { show: false } },
-      yAxis: { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
-      series: [
-        { name: 'Luỹ kế', type: 'line', smooth: 0.25, symbol: 'none', lineStyle: { width: 2, color: BRAND_HEX },
-          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(176,125,43,.22)' }, { offset: 1, color: 'rgba(176,125,43,.02)' }]) }, data: cum },
-        ...(targetTotal ? [{ name: 'Nhịp target', type: 'line', symbol: 'none', silent: true,
-          lineStyle: { width: 2, type: 'dashed', color: INK.axis }, data: pace }] : []),
-      ],
-    };
-  }, [dayKeys, dayRevenue, targetTotal, rangeDays]);
+  /* ---- AOV theo ngày (thay biểu đồ luỹ kế vs nhịp target) ---- */
+  const aovDayChart = useMemo(() => aovDayOption(dayKeys, slice.byDate, dShort), [dayKeys, slice]);
 
   /* ---- Cơ cấu theo miền ---- */
   const regionRows = useMemo(() => {
@@ -2303,16 +2320,18 @@ function OverviewPage({ data }) {
 
         <div className="c5">
           <ChartCard
-            title="Luỹ kế so với nhịp target" sub={targetTotal ? 'Đường gạch: target chia đều theo ngày' : 'Chưa có target để so'} height={320}
-            option={cumOption}
+            title="AOV theo ngày" sub="AOV chung / tại chỗ + mang về (ET) / giao hàng (D) từng ngày trong kỳ" height={320}
+            option={aovDayChart}
             table={(
               <table>
-                <thead><tr><th>Ngày</th><th className="r">Luỹ kế</th><th className="r">Nhịp target</th></tr></thead>
-                <tbody>{(() => { let acc = 0; return dayKeys.map((k, i) => {
-                  acc += slice.byDate[k] ? slice.byDate[k].revenue : 0;
-                  return <tr key={k}><td>{dFull(k)}</td><td className="r">{money2(acc)}</td>
-                    <td className="r">{targetTotal ? money2(targetTotal / rangeDays * (i + 1)) : '—'}</td></tr>;
-                }); })()}</tbody>
+                <thead><tr><th>Ngày</th><th className="r">AOV</th><th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">TC</th></tr></thead>
+                <tbody>{dayKeys.map((k) => { const d = slice.byDate[k] || {};
+                  return <tr key={k}><td>{dFull(k)}</td>
+                    <td className="r">{d.aov ? money2(d.aov) : '—'}</td>
+                    <td className="r">{d.aovET == null ? '—' : money2(d.aovET)}</td>
+                    <td className="r">{d.aovD == null ? '—' : money2(d.aovD)}</td>
+                    <td className="r">{money(d.bills || 0)}</td></tr>;
+                })}</tbody>
               </table>
             )}
           />
@@ -2667,28 +2686,8 @@ function WeeklyPage({ data }) {
     ],
   }), [dayKeys, prevDayKeys, curByDay, prevByDay, dayTarget]);
 
-  /* ---- Luỹ kế trong tuần vs nhịp target ---- */
-  const cumOption = useMemo(() => {
-    let a = 0, b = 0;
-    const cum = curByDay.map((v) => (a += v));
-    const cumPrev = prevByDay.map((v) => (b += v));
-    const pace = dayKeys.map((_, i) => (targetTotal ? targetTotal / weekDays * (i + 1) : 0));
-    return {
-      ...ANIM,
-      grid: { left: 58, right: 18, top: 30, bottom: 28 },
-      tooltip: { ...TIP, trigger: 'axis' },
-      legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
-      xAxis: { type: 'category', data: dayKeys.map(wdOf), ...AXIS_STYLE, splitLine: { show: false } },
-      yAxis: { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
-      series: [
-        { name: 'Luỹ kế tuần này', type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 2.6, color: BRAND_HEX },
-          areaStyle: { color: 'rgba(176,125,43,.10)' }, data: cum },
-        { name: 'Luỹ kế tuần trước', type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 2, color: '#C9C3BA' }, data: cumPrev },
-        ...(targetTotal ? [{ name: 'Nhịp target', type: 'line', symbol: 'none', silent: true,
-          lineStyle: { width: 1.6, type: 'dashed', color: INK.axis }, data: pace }] : []),
-      ],
-    };
-  }, [dayKeys, curByDay, prevByDay, targetTotal, weekDays]);
+  /* ---- AOV theo ngày trong tuần (thay biểu đồ luỹ kế vs nhịp target) ---- */
+  const aovDayChart = useMemo(() => aovDayOption(dayKeys, slice.byDate, wdOf), [dayKeys, slice]);
 
   /* ---- TC và AOV theo thứ ---- */
   const tcAovOption = useMemo(() => ({
@@ -2855,16 +2854,16 @@ function WeeklyPage({ data }) {
         </div>
         <div className="c5">
           <ChartCard
-            title="Luỹ kế trong tuần" sub="Tuần này · tuần trước · nhịp target chia đều theo ngày" height={320}
-            option={cumOption}
+            title="AOV theo ngày" sub="AOV chung / tại chỗ + mang về (ET) / giao hàng (D) từng ngày trong tuần" height={320}
+            option={aovDayChart}
             table={(
               <table>
-                <thead><tr><th>Thứ</th><th className="r">Luỹ kế tuần này</th><th className="r">Luỹ kế tuần trước</th><th className="r">Nhịp target</th></tr></thead>
-                <tbody>{dayKeys.map((k, i) => {
-                  const c = curByDay.slice(0, i + 1).reduce((a, v) => a + v, 0);
-                  const pv = prevByDay.slice(0, i + 1).reduce((a, v) => a + v, 0);
-                  return <tr key={k}><td>{wdOf(k)}</td><td className="r">{money2(c)}</td><td className="r">{money2(pv)}</td>
-                    <td className="r">{targetTotal ? money2(targetTotal / weekDays * (i + 1)) : '—'}</td></tr>;
+                <thead><tr><th>Thứ</th><th>Ngày</th><th className="r">AOV</th><th className="r">AOV-ET</th><th className="r">AOV-D</th></tr></thead>
+                <tbody>{dayKeys.map((k) => { const d = slice.byDate[k] || {};
+                  return <tr key={k}><td>{wdOf(k)}</td><td>{dFull(k)}</td>
+                    <td className="r">{d.aov ? money2(d.aov) : '—'}</td>
+                    <td className="r">{d.aovET == null ? '—' : money2(d.aovET)}</td>
+                    <td className="r">{d.aovD == null ? '—' : money2(d.aovD)}</td></tr>;
                 })}</tbody>
               </table>
             )}
