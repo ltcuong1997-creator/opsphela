@@ -599,6 +599,12 @@ table.tb.tb-compact tr.row-off td.nm{text-decoration:line-through}
 .lb-nm small{display:block;font-size:10.5px;color:var(--txt-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lb-vl{font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
 .lb-vl small{display:block;font-size:10px;font-weight:600;color:var(--txt-3)}
+/* Mũi tên tăng/giảm trong bảng Top 10: xanh lá khi tăng, đỏ khi giảm. Phải ghi đè
+   .lb-vl small ở trên (cụ thể hơn .up/.dn nên nếu không ghi đè sẽ bị xám). */
+.lb-vl small.up,.lb-vl small.dn{display:inline-flex;align-items:center;gap:3px;margin-top:3px;
+  padding:1px 6px;border-radius:99px;font-weight:700;font-size:9.5px;letter-spacing:.01em}
+.lb-vl small.up{color:var(--green);background:rgba(18,135,90,.10)}
+.lb-vl small.dn{color:var(--red);background:rgba(196,68,60,.10)}
 .lb-bar{height:5px;border-radius:99px;background:var(--line-soft);overflow:hidden;margin-top:5px;width:100%}
 .lb-bar-fill{height:100%;border-radius:99px}
 </style>
