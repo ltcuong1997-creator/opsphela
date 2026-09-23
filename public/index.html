@@ -3822,10 +3822,12 @@ function App() {
     try {
       const momRange = { from: monthBack(range.from), to: monthBack(range.to) };
       // Cùng kỳ tháng trước: nằm ngoài khoảng đang tải nếu kỳ ngắn -> tải riêng 1 lần.
+      // Tải riêng cùng kỳ tháng trước trừ khi nó nằm TRỌN trong khoảng đang tải -
+      // chồng lấn một phần mà dùng tạm thì thiếu ngày, so ra sai lệch.
+      const inside = momRange.from >= prevRange.from && momRange.to <= range.to;
       const [docs, momDocs] = await Promise.all([
         loadDays(prevRange.from, range.to),
-        momRange.to < prevRange.from || momRange.from > range.to
-          ? loadDays(momRange.from, momRange.to) : Promise.resolve(null),
+        inside ? Promise.resolve(null) : loadDays(momRange.from, momRange.to),
       ]);
       setRaw({ range, docs, momRange, momDocs });
     } catch (e) { setErr(e.message); }
