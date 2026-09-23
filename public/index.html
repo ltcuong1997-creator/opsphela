@@ -2744,6 +2744,23 @@ function WeeklyPage({ data }) {
   const topWeekDrop = useMemo(() => storeRows.filter((r) => r.growth != null)
     .sort((a, b) => a.growth - b.growth).slice(0, 10).map(lb), [storeRows]);
 
+  /* Món trong tuần: danh sách tên món, mã món và số ngày có dữ liệu món - cho thẻ
+     "Món theo chi nhánh" dùng chung với trang Summary. */
+  const itemNames = useMemo(() => Object.values(cur.byItem || {})
+    .sort((a, b) => b.revenue - a.revenue).map((x) => x.name), [cur]);
+  const keysByName = useMemo(() => {
+    const m = {};
+    for (const d of Object.values(cur.days || {})) {
+      for (const [k, it] of Object.entries(d.items || {})) {
+        const set = (m[it.name] ||= []);
+        if (!set.includes(k)) set.push(k);
+      }
+    }
+    return m;
+  }, [cur]);
+  const itemDayCount = useMemo(() => Object.values(cur.days || {})
+    .filter((d) => d.items && Object.keys(d.items).length).length, [cur]);
+
   const peak = useMemo(() => dayKeys.map((k, i) => ({ k, v: curByDay[i] })).filter((x) => x.v)
     .sort((a, b) => b.v - a.v), [dayKeys, curByDay]);
   const peakDay = peak[0], slowDay = peak[peak.length - 1];
@@ -2933,8 +2950,18 @@ function WeeklyPage({ data }) {
         ))}
       </div>
 
-      {/* ============ 4. CHI NHÁNH ============ */}
-      <Section n="4" title="Chi nhánh trong tuần" sub="Doanh thu cao nhất, tăng mạnh nhất và giảm mạnh nhất — đều so với tuần trước" />
+      {/* ============ 4. MÓN ============ */}
+      <Section n="4" title="Món bán trong tuần" sub="Chọn món bất kỳ để xem số lượng bán và ADQ của món đó ở từng chi nhánh" />
+
+      <div className="dash">
+        <div className="c12">
+          <ItemStoreCard range={range} itemNames={itemNames} keysByName={keysByName} meta={meta}
+            keep={slice.keep} dayCount={itemDayCount} />
+        </div>
+      </div>
+
+      {/* ============ 5. CHI NHÁNH ============ */}
+      <Section n="5" title="Chi nhánh trong tuần" sub="Doanh thu cao nhất, tăng mạnh nhất và giảm mạnh nhất — đều so với tuần trước" />
 
       <div className="dash">
         <div className="c4"><Leaderboard title="Top 10 doanh thu" sub="Tuần này" rows={topWeekStores} /></div>
