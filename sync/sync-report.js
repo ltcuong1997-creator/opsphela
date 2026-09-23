@@ -56,6 +56,21 @@ async function main() {
     console.log(`Cần nạp ${days.length} ngày: ${days.join(', ') || '(không còn ngày nào)'}`);
     if (!days.length) return;
   }
+  // --skip-complete: bỏ ngày đã có ĐỦ các trường mới (nguồn đơn kèm số hoá đơn, hoa hồng...).
+  // Khác --skip-done ở chỗ ngày nạp bằng bản script cũ vẫn được nạp lại. Dùng để chạy tiếp
+  // một lượt nạp bù dài bị ngắt giữa chừng mà không phải tải lại từ đầu (mỗi ngày ~10 phút).
+  if (db && days[0] && process.argv.includes('--skip-complete')) {
+    const probes = await Promise.all(days.map((d) => db.collection('d05Daily').where('date', '==', d).limit(1).get()));
+    const before = days.length;
+    days = days.filter((d, i) => {
+      const doc = probes[i].docs[0];
+      if (!doc) return true;
+      const x = doc.data();
+      return !(x.commission != null && Object.values(x.sources || {}).some((s) => s.bills != null));
+    });
+    console.log(`Bỏ qua ${before - days.length} ngày đã đủ trường; còn ${days.length} ngày cần nạp.`);
+    if (!days.length) return;
+  }
 
   try {
     await login(page);
@@ -111,7 +126,8 @@ async function syncDay(page, day, db) {
   if (DRY_RUN) return;
   const { written, skipped } = await writeChanged(db, docs);
   console.log(`[${tag}] ✅ Ghi ${written} doc thay đổi, bỏ qua ${skipped} doc không đổi.`);
-  fs.unlinkSync(filePath);
+  // Dọn file tạm: đã ghi xong rồi, file biến mất vì lý do gì cũng không phải lỗi của ngày này.
+  try { fs.unlinkSync(filePath); } catch (e) { /* đã bị xoá trước đó */ }
 }
 
 // Chữ lấy từ hộp thoại Fabi có email người xuất - che đi trước khi đưa vào log công khai.
@@ -164,20 +180,30 @@ async function pickDay(page, day) {
   const picker = page.locator('.daterangepicker:visible');
   await picker.waitFor({ timeout: 10000 });
 
+  const monthOf = (c) => c.evaluate((el) => {
+    // Đọc chữ đang hiện ("Tháng 9") thay vì value của ô chọn tháng - value bản
+    // Fabi đánh số khác thư viện gốc, đọc value là lệch 1 tháng.
+    const sel = el.querySelector('select.monthselect');
+    const text = sel ? sel.selectedOptions[0]?.textContent : el.querySelector('th.month')?.textContent;
+    return { month: Number((text || '').match(/\d+/)?.[0]), year: Number(el.querySelector('.yearselect')?.value) };
+  });
+
+  // Lật ĐÚNG CHIỀU: nạp bù chạy tăng dần nên sau khi xong tháng 1, lịch đang ở tháng 1,
+  // muốn tới tháng 2 phải bấm "›". Chỉ bấm "‹" thì không bao giờ tới được.
   let cal = null;
-  for (let i = 0; i < 36 && !cal; i++) {
+  const target = y * 12 + m;
+  for (let i = 0; i < 40 && !cal; i++) {
+    let left = null;
     for (const side of ['left', 'right']) {
       const c = picker.locator(`.drp-calendar.${side}`);
-      // Đọc chữ đang hiện ("Tháng 9") thay vì value của ô chọn tháng - value bản
-      // Fabi đánh số khác thư viện gốc, đọc value là lệch 1 tháng.
-      const shown = await c.evaluate((el) => {
-        const sel = el.querySelector('select.monthselect');
-        const text = sel ? sel.selectedOptions[0]?.textContent : el.querySelector('th.month')?.textContent;
-        return { month: Number((text || '').match(/\d+/)?.[0]), year: Number(el.querySelector('.yearselect')?.value) };
-      });
+      const shown = await monthOf(c);
+      if (side === 'left') left = shown;
       if (shown.year === y && shown.month === m) cal = c;
     }
-    if (!cal) await picker.locator('.drp-calendar.left .prev').click();
+    if (cal) break;
+    const at = left && left.year ? left.year * 12 + left.month : target;
+    const arrow = target < at ? '.drp-calendar.left .prev' : '.drp-calendar.right .next';
+    await picker.locator(arrow).click();
   }
   if (!cal) throw new Error(`Không lật được lịch Fabi tới tháng ${m}/${y}`);
 
