@@ -1628,6 +1628,41 @@ function ItemStoreCard({ range, itemNames, keysByName, meta, keep, dayCount }) {
 
 /* Ba chuỗi AOV (chung / ET / D) cạnh nhau cho mỗi nhóm - dùng chung cho Summary và Weekly.
    cmpLabel: nhãn kỳ so sánh hiện trong tooltip ("kỳ trước" / "tuần trước"). */
+/* Ba đường AOV (chung / ET / D) theo danh sách nhóm - cùng kiểu với thẻ "Ba đường AOV
+   theo tháng", chỉ thay trục ngang 12 tháng bằng tỉnh/TP hoặc AM. */
+function aovDimLineOption(rows, cmpLabel) {
+  const line = (name, key, color, dash) => ({
+    name, type: 'line', smooth: 0.25, symbol: 'circle', symbolSize: 6, connectNulls: true,
+    lineStyle: { width: 2.2, color, type: dash || 'solid' }, itemStyle: { color },
+    data: rows.map((r) => (r[key] == null ? null : Math.round(r[key]))),
+  });
+  return {
+    ...ANIM,
+    grid: { left: 56, right: 18, top: 28, bottom: rows.length > 6 ? 62 : 34 },
+    tooltip: {
+      ...TIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: INK.axis, width: 1 } },
+      formatter: (ps) => {
+        const r = rows[ps[0].dataIndex];
+        const d = r && r.prev && r.prev.aov ? pctDiff(r.aov, r.prev.aov) : null;
+        return `<b>${r ? r.name : ''}</b><br/>`
+          + ps.map((x) => `${x.marker} ${x.seriesName} <b>${x.value == null ? '—' : money(x.value) + ' đ'}</b>`).join('<br/>')
+          + (d == null ? '' : `<br/>AOV chung ${d >= 0 ? '+' : ''}${pct1(d)} vs ${cmpLabel}`);
+      },
+    },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 3, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: {
+      type: 'category', data: rows.map((r) => r.name), boundaryGap: false, ...AXIS_STYLE, splitLine: { show: false },
+      axisLabel: { ...AXIS_STYLE.axisLabel, interval: 0, rotate: rows.length > 6 ? 38 : 0, fontSize: 10.5, width: 78, overflow: 'truncate' },
+    },
+    yAxis: { type: 'value', scale: true, ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+    series: [
+      line('AOV chung', 'aov', BRAND_HEX),
+      line('AOV-ET', 'aovET', SERIES[0], 'dashed'),
+      line('AOV-D', 'aovD', SERIES[2], 'dashed'),
+    ],
+  };
+}
+
 function aovDimOption(rows, labelWidth, cmpLabel) {
   const list = [...rows].reverse();
   const s = (name, key, color) => ({
@@ -2313,8 +2348,8 @@ function OverviewPage({ data }) {
 
         <div className="c6">
           <ChartCard
-            title="AOV theo tỉnh/TP" sub="Top 10 theo doanh thu · bấm để lọc" height={aovCardH}
-            option={aovDimOption(dimCity.rows, 92, 'kỳ trước')}
+            title="AOV theo tỉnh/TP" sub="Top 10 theo doanh thu · ba đường AOV chung / ET / D" height={aovCardH}
+            option={aovDimLineOption(dimCity.rows, 'kỳ trước')}
             onClick={(p) => toggle('city', dimCity.rows[dimCity.rows.length - 1 - p.dataIndex].name)}
             empty={!dimCity.rows.length ? 'Chưa có dữ liệu.' : null}
             table={aovTable(dimCity)}
@@ -2323,8 +2358,8 @@ function OverviewPage({ data }) {
 
         <div className="c6">
           <ChartCard
-            title="AOV theo AM" sub="Top 10 theo doanh thu · bấm để lọc" height={aovCardH}
-            option={aovDimOption(dimAm.rows, 92, 'kỳ trước')}
+            title="AOV theo AM" sub="Top 10 theo doanh thu · ba đường AOV chung / ET / D" height={aovCardH}
+            option={aovDimLineOption(dimAm.rows, 'kỳ trước')}
             onClick={(p) => toggle('am', dimAm.rows[dimAm.rows.length - 1 - p.dataIndex].name)}
             empty={!dimAm.rows.length ? 'Chưa có dữ liệu.' : null}
             table={aovTable(dimAm)}
@@ -2832,9 +2867,10 @@ function WeeklyPage({ data }) {
         {dims.map((d) => (
           <div className="c4" key={'aov-' + d.k}>
             <ChartCard
-              title={`AOV theo ${d.lower}`} sub={d.limit ? `Top ${d.limit} theo doanh thu` : 'Ba chuỗi cạnh nhau'}
+              title={`AOV theo ${d.lower}`}
+              sub={d.k === 'region' ? 'Ba chuỗi cạnh nhau' : `Top ${d.limit} theo doanh thu · ba đường AOV chung / ET / D`}
               height={aovCardH}
-              option={aovDimOption(d.rows, d.width, 'tuần trước')}
+              option={d.k === 'region' ? aovDimOption(d.rows, d.width, 'tuần trước') : aovDimLineOption(d.rows, 'tuần trước')}
               empty={!d.rows.length ? 'Chưa có dữ liệu.' : null}
               table={aovTable(d)}
             />
