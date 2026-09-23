@@ -1576,7 +1576,47 @@ function ItemStoreCard({ range, itemNames, keysByName, meta, keep, dayCount }) {
   };
 
   const total = (rows || []).reduce((a, r) => a + r.qty, 0);
+  /* ADQ = số bán trung bình mỗi ngày, chia đều cho SỐ NGÀY CỦA CẢ KỲ (mọi chi nhánh
+     cùng mẫu số) - chọn 01-23/09 thì chia 23. */
+  const rangeDays = dDiff(range.from, range.to) + 1;
+  const qtyOption = useMemo(() => {
+    const list = rows || [];
+    return {
+      ...ANIM,
+      grid: { left: 58, right: 58, top: 28, bottom: list.length > 6 ? 78 : 34 },
+      tooltip: {
+        ...TIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: INK.axis, width: 1 } },
+        formatter: (ps) => {
+          const r = list[ps[0].dataIndex];
+          return `<b>${r ? r.name : ''}</b><br/>`
+            + ps.map((x) => `${x.marker} ${x.seriesName} <b>${x.value == null ? '—' : money(x.value)}</b>`).join('<br/>')
+            + (r ? `<br/>Doanh thu <b>${money(r.revenue)} đ</b>` : '');
+        },
+      },
+      legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 3, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+      xAxis: {
+        type: 'category', data: list.map((r) => r.name), boundaryGap: false, ...AXIS_STYLE, splitLine: { show: false },
+        axisLabel: { ...AXIS_STYLE.axisLabel, interval: 0, rotate: list.length > 6 ? 40 : 0, fontSize: 10, width: 86, overflow: 'truncate' },
+      },
+      yAxis: [
+        { type: 'value', name: 'SL', ...AXIS_STYLE, nameTextStyle: { color: INK.mute, fontSize: 10.5, fontFamily: FONT },
+          axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+        { type: 'value', name: 'ADQ', ...AXIS_STYLE, nameTextStyle: { color: INK.mute, fontSize: 10.5, fontFamily: FONT },
+          axisLine: { show: false }, splitLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+      ],
+      series: [
+        { name: 'Số lượng bán', type: 'line', smooth: 0.25, symbol: 'circle', symbolSize: 6,
+          lineStyle: { width: 2.4, color: BRAND_HEX }, itemStyle: { color: BRAND_HEX },
+          areaStyle: { color: 'rgba(176,125,43,.08)' }, data: list.map((r) => r.qty) },
+        { name: 'ADQ · TB mỗi ngày', type: 'line', yAxisIndex: 1, smooth: 0.25, symbol: 'circle', symbolSize: 5,
+          lineStyle: { width: 2, color: SERIES[0], type: 'dashed' }, itemStyle: { color: SERIES[0] },
+          data: list.map((r) => +(r.qty / rangeDays).toFixed(1)) },
+      ],
+    };
+  }, [rows, rangeDays]);
+
   return (
+    <>
     <div className="card">
       <div className="card-h">
         <div>
@@ -1599,30 +1639,39 @@ function ItemStoreCard({ range, itemNames, keysByName, meta, keep, dayCount }) {
         {!shown.length ? <span className="hint">Không có món nào khớp.</span> : null}
       </div>
       {err ? <div className="banner">{err}</div> : null}
-      {rows && (
-        rows.length ? (
-          <div className="scroll-x">
-            <table className="tb">
-              <thead>
-                <tr><th>Chi nhánh</th>{sel.map((n) => <th key={n} className="r">{n}</th>)}<th className="r">Tổng SL</th><th className="r">Doanh thu</th></tr>
-              </thead>
-              <tbody>{rows.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.name}</td>
-                  {sel.map((n) => <td key={n} className="r">{r.per[n] ? money(r.per[n].qty) : '—'}</td>)}
-                  <td className="r">{money(r.qty)}</td>
-                  <td className="r">{money(r.revenue)} đ</td>
-                </tr>
-              ))}</tbody>
-              <tfoot><tr><td>{rows.length} chi nhánh · {days} ngày có số</td>
-                {sel.map((n) => <td key={n} className="r">{money(rows.reduce((a, r) => a + (r.per[n] ? r.per[n].qty : 0), 0))}</td>)}
-                <td className="r">{money(total)}</td>
-                <td className="r">{money(rows.reduce((a, r) => a + r.revenue, 0))} đ</td></tr></tfoot>
-            </table>
-          </div>
-        ) : <div className="empty">Kỳ này chưa có số món cho các món đã chọn.</div>
-      )}
+      {rows && !rows.length ? <div className="empty">Kỳ này chưa có số món cho các món đã chọn.</div> : null}
     </div>
+    {rows && rows.length ? (
+      <ChartCard
+        title={'Số bán theo chi nhánh — ' + sel.join(' + ')}
+        sub={`Đường liền là số lượng bán cả kỳ, đường gạch là ADQ (chia đều ${rangeDays} ngày của kỳ)`}
+        height={barCardH(rows.length, 14, 300, 460)}
+        option={qtyOption}
+        table={(
+          <table>
+            <thead>
+              <tr><th>Chi nhánh</th>{sel.map((n) => <th key={n} className="r">{n}</th>)}
+                <th className="r">Tổng SL</th><th className="r">ADQ</th><th className="r">Doanh thu</th></tr>
+            </thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.name}</td>
+                {sel.map((n) => <td key={n} className="r">{r.per[n] ? money(r.per[n].qty) : '—'}</td>)}
+                <td className="r">{money(r.qty)}</td>
+                <td className="r">{(r.qty / rangeDays).toFixed(1)}</td>
+                <td className="r">{money(r.revenue)} đ</td>
+              </tr>
+            ))}</tbody>
+            <tfoot><tr><td>{rows.length} chi nhánh · {days} ngày có số</td>
+              {sel.map((n) => <td key={n} className="r">{money(rows.reduce((a, r) => a + (r.per[n] ? r.per[n].qty : 0), 0))}</td>)}
+              <td className="r">{money(total)}</td>
+              <td className="r">{(total / rangeDays).toFixed(1)}</td>
+              <td className="r">{money(rows.reduce((a, r) => a + r.revenue, 0))} đ</td></tr></tfoot>
+          </table>
+        )}
+      />
+    ) : null}
+    </>
   );
 }
 
