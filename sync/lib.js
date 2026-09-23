@@ -271,6 +271,18 @@ function hashOf(doc) {
   return crypto.createHash('sha1').update(stable).digest('hex').slice(0, 16);
 }
 
+// Mạng chậm hay ném DEADLINE_EXCEEDED giữa chừng: thử lại vài lần trước khi bỏ ngày đó.
+// Firestore set() là ghi đè nguyên doc nên chạy lại an toàn, không nhân đôi dữ liệu.
+async function withRetry(label, fn, times = 4) {
+  for (let i = 1; ; i++) {
+    try { return await fn(); } catch (e) {
+      if (i >= times) throw e;
+      console.log(`  thử lại ${label} (lần ${i}): ${String(e.message).split('\n')[0].slice(0, 60)}`);
+      await new Promise((r) => setTimeout(r, 2000 * i));
+    }
+  }
+}
+
 // Chỉ ghi các doc có hash khác với lần ghi trước. Trả về số doc đã ghi.
 async function writeChanged(db, docs) {
   const byDate = {};
@@ -309,29 +321,36 @@ async function writeChanged(db, docs) {
     }
     const summary = daySummary(date, allDay);
 
-    // Chia batch 100 doc (~1 MB) - batch lớn hay bị DEADLINE_EXCEEDED khi mạng chậm.
-    for (let i = 0; i < changed.length; i += 100) {
-      const batch = db.batch();
-      for (const [id, doc] of changed.slice(i, i + 100)) {
-        batch.set(db.collection(COLLECTION).doc(id), {
-          ...doc,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-      if (i + 100 >= changed.length) {
-        batch.set(stateRef, { hashes: newHashes });
-        if (date > EXCEL_UNTIL) batch.set(db.collection(DAYS_COLLECTION).doc(date), {
-          ...summary,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        // Món × cửa hàng: chỉ Fabi mới có, không dính mốc Excel nên ngày nào cũng ghi
-        batch.set(db.collection(ITEM_STORES_COLLECTION).doc(date), {
-          ...itemStoresDoc(date, allDay),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-      await batch.commit();
+    // Chia batch 40 doc - mỗi doc cửa hàng kèm danh sách món nên batch to hay bị
+    // DEADLINE_EXCEEDED khi mạng chậm. Hai doc nặng nhất (tóm tắt ngày ~300 KB và
+    // món × cửa hàng ~130 KB) tách ra ghi riêng, KHÔNG nhét chung batch cuối.
+    for (let i = 0; i < changed.length; i += 40) {
+      const part = changed.slice(i, i + 40);
+      await withRetry(`${date}: ghi ${part.length} cửa hàng`, async () => {
+        const batch = db.batch();
+        for (const [id, doc] of part) {
+          batch.set(db.collection(COLLECTION).doc(id), {
+            ...doc,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+      });
     }
+    if (date > EXCEL_UNTIL) {
+      await withRetry(`${date}: tóm tắt ngày`, () => db.collection(DAYS_COLLECTION).doc(date).set({
+        ...summary,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }));
+    }
+    // Món × cửa hàng: chỉ Fabi mới có, không dính mốc Excel nên ngày nào cũng ghi
+    await withRetry(`${date}: món × cửa hàng`, () => db.collection(ITEM_STORES_COLLECTION).doc(date).set({
+      ...itemStoresDoc(date, allDay),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }));
+    // syncState ghi SAU CÙNG: có nó nghĩa là cả ngày đã vào đủ, nên --skip-done /
+    // --skip-complete mới tin được.
+    await withRetry(`${date}: syncState`, () => stateRef.set({ hashes: newHashes }));
     written += changed.length;
     for (const [, doc] of changed) changedDocs.push(doc);
   }
