@@ -572,6 +572,37 @@ table.tb.tb-compact tr.row-off td.nm{text-decoration:line-through}
 .sec-t{min-width:0}
 .sec-t h2{margin:0;font-size:14.5px;font-weight:800;letter-spacing:-.01em;line-height:1.2}
 .sec-t p{margin:1px 0 0;font-size:11.5px;color:var(--txt-3);line-height:1.3}
+/* Thanh tiến trình mục báo cáo: dính ngay dưới topbar, mỗi mục một nút, nối nhau bằng
+   vạch như stepper. Mục đang xem sáng màu thương hiệu, các mục đã qua tô nhạt, vạch mảnh
+   dưới đáy chạy theo độ cuộn của cả trang. */
+.secnav{position:sticky;top:var(--top-h);z-index:29;background:rgba(247,245,244,.82);
+  backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);
+  padding:2px 22px 0;animation:snIn .45s var(--ease) backwards}
+@keyframes snIn{from{opacity:0;transform:translateY(-6px)}}
+.sn-track{display:flex;align-items:center;overflow-x:auto;scrollbar-width:none;padding:6px 2px 10px;scroll-behavior:smooth}
+.sn-track::-webkit-scrollbar{display:none}
+.sn-i{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;padding:5px 13px 5px 5px;border-radius:99px;
+  background:var(--card);box-shadow:var(--sh-1);font-size:12.5px;font-weight:600;color:var(--txt-2);white-space:nowrap;
+  transition:background .3s var(--ease),color .3s,box-shadow .3s,transform .3s var(--ease)}
+.sn-i:hover{transform:translateY(-1px);box-shadow:var(--sh-up);color:var(--txt)}
+.sn-i b{width:22px;height:22px;flex:0 0 22px;border-radius:99px;display:grid;place-items:center;font-size:11px;font-weight:800;
+  background:var(--line-soft);color:var(--txt-3);transition:background .3s,color .3s}
+.sn-i.done{color:var(--brand-dark)}
+.sn-i.done b{background:var(--brand-wash);color:var(--brand-dark)}
+.sn-i.on{background:linear-gradient(135deg,var(--brand-bright),var(--brand) 55%,var(--brand-dark));color:#fff;
+  box-shadow:var(--sh-brand),0 0 0 3px rgba(217,162,63,.18);transform:translateY(-1px)}
+.sn-i.on b{background:rgba(255,255,255,.24);color:#fff}
+.sn-ln{flex:0 0 18px;height:2px;margin:0 3px;border-radius:2px;background:var(--line);position:relative;overflow:hidden}
+.sn-ln::after{content:'';position:absolute;inset:0;background:var(--brand-bright);transform:scaleX(0);transform-origin:left;
+  transition:transform .45s var(--ease)}
+.sn-ln.done::after{transform:scaleX(1)}
+.sn-bar{height:2px;margin:0 -22px;background:linear-gradient(90deg,var(--brand-bright),var(--brand));transform-origin:left;
+  transition:transform .12s linear}
+@media(max-width:960px){
+  .secnav{top:0;padding:calc(2px + env(safe-area-inset-top)) 14px 0}
+  .sn-bar{margin:0 -14px}
+  .sn-i{padding:4px 11px 4px 4px;font-size:12px}
+}
 .sec-l{flex:1;height:1px;background:var(--line)}
 
 /* Thẻ mục tiêu: TARGET / ACHIEVE% / FC% + vòng gauge */
@@ -1478,9 +1509,10 @@ function Insight({ icon, label, value }) {
 }
 
 /* Đầu mục: số thứ tự + tên + một câu nói rõ mục này trả lời câu hỏi gì. */
-function Section({ n, title, sub }) {
+function Section({ n, title, sub, nav }) {
+  /* nav = nhãn ngắn trên thanh tiến trình; bỏ trống thì lấy phần tên trước dấu "—" */
   return (
-    <div className="sec">
+    <div className="sec" id={'sec-' + n} data-nav={nav || String(title).split(' — ')[0]}>
       <span className="sec-n">{n}</span>
       <div className="sec-t"><h2>{title}</h2>{sub && <p>{sub}</p>}</div>
       <span className="sec-l" />
@@ -4196,6 +4228,87 @@ function UpdateBar({ onClose }) {
   );
 }
 
+/* Thanh tiến trình các mục của trang (Summary, Weekly…): đọc các đầu mục .sec đang có
+   trên trang nên thêm/bớt mục là thanh tự đổi theo. Bấm -> cuộn mượt tới mục đó; cuộn tay
+   -> mục đang xem tự sáng. sig đổi (đổi trang / đổi kỳ) là đọc lại danh sách mục. */
+function SecNav({ sig }) {
+  const [secs, setSecs] = useState([]);
+  const [active, setActive] = useState(0);
+  const [prog, setProg] = useState(0);
+  const box = useRef(null), track = useRef(null), lock = useRef(0);
+
+  useEffect(() => {
+    const read = () => setSecs([...document.querySelectorAll('.page .sec')].map((el) => ({
+      id: el.id, n: el.querySelector('.sec-n') ? el.querySelector('.sec-n').textContent : '', label: el.dataset.nav || '',
+    })));
+    // Trang mới đang chạy hiệu ứng chuyển nên đọc sau một nhịp
+    const t = setTimeout(read, 260);
+    return () => clearTimeout(t);
+  }, [sig]);
+
+  /* Chiều cao phần đang dính ở trên (topbar + thanh này) - mục được cuộn tới nằm ngay dưới nó.
+     Màn hẹp topbar không dính nên chỉ tính thanh này. */
+  const offset = () => {
+    const top = document.querySelector('.topbar');
+    const topH = top && getComputedStyle(top).position === 'sticky' ? top.offsetHeight : 0;
+    return topH + (box.current ? box.current.offsetHeight : 0) + 10;
+  };
+
+  useEffect(() => {
+    if (!secs.length) return;
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        setProg(max > 0 ? Math.min(1, scrollY / max) : 0);
+        if (Date.now() < lock.current) return; // đang cuộn tới mục vừa bấm - giữ nguyên mục đó
+        const y = offset() + 40;
+        let i = 0;
+        secs.forEach((s, k) => { const el = document.getElementById(s.id); if (el && el.getBoundingClientRect().top <= y) i = k; });
+        if (max > 0 && scrollY >= max - 4) i = secs.length - 1; // chạm đáy: mục cuối
+        setActive(i);
+      });
+    };
+    onScroll();
+    addEventListener('scroll', onScroll, { passive: true });
+    addEventListener('resize', onScroll);
+    return () => { cancelAnimationFrame(raf); removeEventListener('scroll', onScroll); removeEventListener('resize', onScroll); };
+  }, [secs]);
+
+  // Giữ nút đang sáng luôn nằm trong khung khi thanh dài hơn màn hình
+  useEffect(() => {
+    const t = track.current, b = t && t.children[active * 2];
+    if (b) t.scrollTo({ left: b.offsetLeft - (t.clientWidth - b.offsetWidth) / 2, behavior: 'smooth' });
+  }, [active, secs]);
+
+  const go = (i) => {
+    const el = document.getElementById(secs[i].id);
+    if (!el) return;
+    setActive(i);
+    lock.current = Date.now() + 900;
+    scrollTo({ top: el.getBoundingClientRect().top + scrollY - offset(), behavior: 'smooth' });
+  };
+
+  if (secs.length < 2) return null;
+  return (
+    <nav className="secnav" ref={box} aria-label="Các mục báo cáo">
+      <div className="sn-track" ref={track}>
+        {secs.map((s, i) => (
+          <React.Fragment key={s.id}>
+            {i > 0 && <span className={cls('sn-ln', i <= active && 'done')} />}
+            <button className={cls('sn-i', i === active ? 'on' : i < active && 'done')} onClick={() => go(i)}
+              aria-current={i === active ? 'true' : undefined}>
+              <b>{s.n}</b>{s.label}
+            </button>
+          </React.Fragment>
+        ))}
+      </div>
+      <div className="sn-bar" style={{ transform: 'scaleX(' + prog + ')' }} />
+    </nav>
+  );
+}
+
 function App() {
   const [user, setUser] = useState(LOCAL ? { email: 'localhost' } : undefined);
   const [page, setPage] = useState('overview');
@@ -4380,6 +4493,7 @@ function App() {
             )}
           </div>
         </div>
+        <SecNav sig={shown + (data ? data.range.from + data.range.to : '') + (leaving ? '_' : '')} />
         {/* key gồm cả khoảng ngày: đổi kỳ là các thẻ bung lại và số chạy lại từ 0 */}
         <div key={shown + (data ? data.range.from + data.range.to : '')} className={cls('page', leaving && 'leaving')}>
           {err ? <div className="banner"><b>Không tải được dữ liệu:</b>&nbsp;{err}</div>
