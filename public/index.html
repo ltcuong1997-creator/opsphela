@@ -502,6 +502,9 @@ table.tb.tb-compact tr.row-off td.nm{text-decoration:line-through}
 .tkc-d.on b{color:#fff}
 .tkc-d.gap{background:var(--red-wash);box-shadow:inset 0 0 0 1px var(--red);color:var(--red)}
 .tkc-d.fut{opacity:.35}
+.ow-box{margin-top:12px;border:1.5px solid var(--brand);border-radius:14px;overflow:hidden;background:#fff}
+.ow-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 14px;background:var(--brand-wash);font-size:13px}
+.ow-h small{display:block;color:var(--txt-3);font-size:11.5px;margin-top:2px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:99px;vertical-align:middle;margin-right:2px}
 /* Bảng target sửa trực tiếp */
 .tg-wrap{max-height:70vh;overflow:auto}
@@ -4995,28 +4998,60 @@ function TicketPage({ data }) {
   const days = (csCoverage && csCoverage.days) || {};
   const imports = (csCoverage && csCoverage.imports) || [];
 
+  /* Nạp = GHI ĐÈ THEO NGÀY: ngày nào có trong file thì phiếu của ngày đó trên hệ thống bằng
+     đúng file (phiếu cũ của ngày đó mà file không còn - bị gộp/xoá bên CSKH - sẽ bị xoá).
+     Ngày không có trong file giữ nguyên. Bước 1 đọc file + so với số đang có để xem trước,
+     bước 2 người dùng bấm "Ghi đè" mới ghi. */
+  const [plan, setPlan] = useState(null); // { file, list, rows: [{ date, had, next }], drop: [id], dates: Set }
   const run = async (files) => {
     const file = [...files].find((x) => /\.(xlsx|xls|csv)$/i.test(x.name));
     if (!file || busy) return;
-    setBusy(true); setErr(''); setMsg('Đang đọc ' + file.name + '…');
+    setBusy(true); setErr(''); setPlan(null); setMsg('Đang đọc ' + file.name + '…');
     try {
       const list = parseTicketFile(await file.arrayBuffer());
-      const ts = firebase.firestore.FieldValue.serverTimestamp();
-      for (let i = 0; i < list.length; i += 400) {
-        const batch = FS.batch();
-        for (const t of list.slice(i, i + 400)) batch.set(FS.collection('csTickets').doc(t.id), { ...t, importedAt: ts });
-        await batch.commit();
-        setMsg(`Đang lưu ${Math.min(i + 400, list.length)}/${list.length} phiếu…`);
+      const next = {};
+      for (const t of list) next[t.date] = (next[t.date] || 0) + 1;
+      const dates = Object.keys(next).sort();
+      setMsg('Đang so với số đang có trên hệ thống…');
+      const have = await loadTickets(dates[0], dates[dates.length - 1]);
+      const ids = new Set(list.map((t) => t.id));
+      const had = {};
+      const drop = [];
+      for (const t of have) {
+        if (!next[t.date]) continue; // ngày không có trong file: giữ nguyên
+        had[t.date] = (had[t.date] || 0) + 1;
+        if (!ids.has(t.id)) drop.push(t.id);
       }
-      const ds = list.map((t) => t.date).sort();
-      const from = ds[0], to = ds[ds.length - 1];
-      setMsg('Đang cập nhật lịch đã nạp…');
-      const counts = await recountCoverage(from, to);
-      const entry = { at: new Date().toISOString(), file: file.name, n: list.length, from, to };
+      setPlan({ file: file.name, list, drop, rows: dates.map((d) => ({ date: d, had: had[d] || 0, next: next[d] })) });
+      setMsg('');
+    } catch (e) { setErr(e.message || String(e)); setMsg(''); }
+    setBusy(false);
+  };
+  const apply = async () => {
+    if (!plan || busy) return;
+    const { list, drop, rows, file } = plan;
+    setBusy(true); setErr('');
+    try {
+      const ts = firebase.firestore.FieldValue.serverTimestamp();
+      const ops = [...drop.map((id) => ['del', id]), ...list.map((t) => ['set', t])];
+      for (let i = 0; i < ops.length; i += 400) {
+        const batch = FS.batch();
+        for (const [op, x] of ops.slice(i, i + 400)) {
+          if (op === 'del') batch.delete(FS.collection('csTickets').doc(x));
+          else batch.set(FS.collection('csTickets').doc(x.id), { ...x, importedAt: ts });
+        }
+        await batch.commit();
+        setMsg(`Đang ghi ${Math.min(i + 400, ops.length)}/${ops.length}…`);
+      }
+      const counts = {};
+      for (const r of rows) counts[r.date] = r.next;
+      const from = rows[0].date, to = rows[rows.length - 1].date;
+      const entry = { at: new Date().toISOString(), file, n: list.length, from, to, dropped: drop.length };
       await FS.collection('config').doc('csCoverage').set({
         days: counts, imports: [entry, ...imports].slice(0, 30), updatedAt: ts,
       }, { merge: true });
-      setMsg(`✓ Đã nạp ${list.length} phiếu, tạo từ ${dFull(from)} đến ${dFull(to)}. Phiếu đã có thì được cập nhật trạng thái mới nhất, không nhân đôi.`);
+      setMsg(`✓ Đã ghi đè ${rows.length} ngày (${dFull(from)} – ${dFull(to)}): hệ thống giờ có đúng ${list.length} phiếu như file${drop.length ? ', đã xoá ' + drop.length + ' phiếu cũ không còn trong file' : ''}.`);
+      setPlan(null);
       await reloadMeta();
     } catch (e) { setErr(e.message || String(e)); setMsg(''); }
     setBusy(false);
@@ -5079,7 +5114,7 @@ function TicketPage({ data }) {
 
       <div className="card">
         <div className="card-h">
-          <div><h3>Nạp file Export Ticket</h3><p>File xuất từ hệ thống CSKH · nạp lại file mới là cập nhật trạng thái phiếu cũ, không nhân đôi · không lưu SĐT / email / tên khách</p></div>
+          <div><h3>Nạp file Export Ticket</h3><p>File xuất từ hệ thống CSKH · ghi đè theo ngày: ngày nào có trong file thì số phiếu ngày đó bằng đúng file · không lưu SĐT / email / tên khách</p></div>
           {busy && <span className="tag t-amber" style={{ marginLeft: 'auto' }}>Đang xử lý…</span>}
         </div>
         <div className="card-b">
@@ -5093,6 +5128,32 @@ function TicketPage({ data }) {
               <div className="hint">Cần các cột: ID phiếu ghi, Thời điểm tạo, Phân loại Ticket, Type Level 1/2, Cửa hàng, Khu vực… · phân tích xem ở mục Customer Service trong Summary và Weekly</div>
             </label>
           )}
+          {plan && (() => {
+            const tHad = plan.rows.reduce((a, r) => a + r.had, 0), tNext = plan.rows.reduce((a, r) => a + r.next, 0);
+            return (
+              <div className="ow-box">
+                <div className="ow-h">
+                  <div><b>{plan.file}</b> · {plan.rows.length} ngày ({dFull(plan.rows[0].date)} – {dFull(plan.rows[plan.rows.length - 1].date)})
+                    <small>Ghi đè theo ngày: số phiếu mỗi ngày dưới đây sẽ bằng đúng file. Ngày không có trong file giữ nguyên.</small></div>
+                  <div className="sp">
+                    <button className="btn sm" disabled={busy} onClick={() => setPlan(null)}>Huỷ</button>
+                    <button className="btn sm pri" disabled={busy} onClick={apply}>{busy ? 'Đang ghi…' : 'Ghi đè ' + plan.rows.length + ' ngày'}</button>
+                  </div>
+                </div>
+                <div className="scroll-x" style={{ maxHeight: 300, overflowY: 'auto' }}>
+                  <table className="tb">
+                    <thead><tr><th>Ngày</th><th className="r">Đang có</th><th className="r">Theo file</th><th className="r">Thay đổi</th></tr></thead>
+                    <tbody>{plan.rows.map((r) => (
+                      <tr key={r.date}><td>{dFull(r.date)} · {wdOf(r.date)}</td><td className="r">{r.had || '—'}</td><td className="r"><b>{r.next}</b></td>
+                        <td className={cls('r', r.next !== r.had && (r.next > r.had ? 'up' : 'dn'))}>{!r.had ? 'mới' : r.next === r.had ? 'không đổi' : (r.next > r.had ? '+' : '') + (r.next - r.had)}</td></tr>
+                    ))}</tbody>
+                    <tfoot><tr><td>Tổng</td><td className="r">{tHad}</td><td className="r">{tNext}</td>
+                      <td className="r">{plan.drop.length ? 'xoá ' + plan.drop.length + ' phiếu cũ' : '—'}</td></tr></tfoot>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
           {msg && <div className="imp-log">{msg}</div>}
           {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
         </div>
@@ -5149,10 +5210,10 @@ function TicketPage({ data }) {
             <div className="card-h"><div><h3>Lịch sử nạp</h3><p>30 lần gần nhất</p></div></div>
             {!imports.length ? <div className="empty">Chưa có lần nạp nào được ghi lại.</div> : (
               <div className="scroll-x"><table className="tb">
-                <thead><tr><th>Lúc nạp</th><th>File</th><th className="r">Phiếu</th><th>Khoảng ngày</th></tr></thead>
+                <thead><tr><th>Lúc nạp</th><th>File</th><th className="r">Phiếu</th><th className="r">Xoá</th><th>Khoảng ngày</th></tr></thead>
                 <tbody>{imports.map((x, i) => (
                   <tr key={i}><td style={{ whiteSpace: 'nowrap' }}>{stamp(x.at)}</td><td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.file}</td>
-                    <td className="r">{money(x.n)}</td><td style={{ whiteSpace: 'nowrap' }}>{dShort(x.from)} – {dShort(x.to)}</td></tr>
+                    <td className="r">{money(x.n)}</td><td className="r">{x.dropped ? x.dropped : '—'}</td><td style={{ whiteSpace: 'nowrap' }}>{dShort(x.from)} – {dShort(x.to)}</td></tr>
                 ))}</tbody></table></div>
             )}
           </div>
