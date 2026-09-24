@@ -488,6 +488,20 @@ table.tb.tb-compact tr.row-off td.nm{text-decoration:line-through}
 .imp-log{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--canvas);font-size:12.5px;line-height:1.7;
   color:var(--txt-2);max-height:220px;overflow:auto;font-variant-numeric:tabular-nums}
 .imp-log div:last-child{color:var(--txt);font-weight:700}
+.tkc-months{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;padding:4px 16px 16px}
+.tkc-m{border:1px solid var(--line-soft);border-radius:14px;padding:10px 10px 12px}
+.tkc-h{display:flex;justify-content:space-between;align-items:baseline;padding:0 2px 8px;font-size:13px}
+.tkc-h span{font-size:11.5px;color:var(--txt-3);font-weight:600}
+.tkc-g{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.tkc-g i{font-style:normal;font-size:10px;font-weight:700;color:var(--txt-3);text-align:center;padding-bottom:2px}
+.tkc-d{position:relative;aspect-ratio:1;border-radius:8px;background:var(--canvas);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:10px;color:var(--txt-3);line-height:1.1}
+.tkc-d em{font-style:normal}
+.tkc-d b{font-size:11px;color:var(--txt)}
+.tkc-d.on{background:rgba(176,125,43,var(--a,.5));color:rgba(255,255,255,.85)}
+.tkc-d.on b{color:#fff}
+.tkc-d.gap{background:var(--red-wash);box-shadow:inset 0 0 0 1px var(--red);color:var(--red)}
+.tkc-d.fut{opacity:.35}
 .dot{display:inline-block;width:8px;height:8px;border-radius:99px;vertical-align:middle;margin-right:2px}
 /* Bảng target sửa trực tiếp */
 .tg-wrap{max-height:70vh;overflow:auto}
@@ -3248,6 +3262,13 @@ function OverviewPage({ data }) {
       <Section n="8" title="Báo cáo chi nhánh" sub="Chọn một chi nhánh để xem mọi chỉ số của chi nhánh đó — luôn so với cùng kỳ tháng trước" />
       <StoreSection cur={cur} mom={data.mom} meta={meta} range={range} momRange={data.momRange || range}
         targetByStore={targetByStore} yearDays={data.yearDays} focus={filter.store} />
+
+      {/* ============ 9. CUSTOMER SERVICE ============ */}
+      <Section n="9" title="Customer Service" nav="Customer Service"
+        sub="Khiếu nại, phân loại lỗi, SLA và xử lý — từ phiếu CSKH, theo bộ lọc đang bật, so với cùng kỳ tháng trước" />
+      <CSSection cur={cur} cmpSales={data.mom} range={range} cmpRange={data.momRange || range} cmpLabel="cùng kỳ tháng trước"
+        storesMeta={storesMeta} csStoreMap={data.csStoreMap} keep={slice.keep} geoFilter={geoFilter}
+        onGoTickets={data.goPage ? () => data.goPage('tickets') : null} />
     </>
   );
 }
@@ -3607,6 +3628,12 @@ function WeeklyPage({ data }) {
         <div className="c4"><Leaderboard title="Top 10 tăng mạnh nhất" sub="So với cùng chi nhánh tuần trước" rows={topWeekGrowth} /></div>
         <div className="c4"><Leaderboard title="Top 10 giảm mạnh nhất" sub="So với cùng chi nhánh tuần trước" rows={topWeekDrop} /></div>
       </div>
+
+      {/* ============ 6. CUSTOMER SERVICE ============ */}
+      <Section n="6" title="Customer Service" nav="Customer Service" sub="Phiếu CSKH trong tuần — khiếu nại, phân loại lỗi, SLA, so với tuần trước" />
+      <CSSection cur={cur} cmpSales={prev} range={range} cmpRange={{ from: dAdd(range.from, -7), to: dAdd(range.to, -7) }} cmpLabel="tuần trước"
+        storesMeta={storesMeta} csStoreMap={data.csStoreMap}
+        onGoTickets={data.goPage ? () => data.goPage('tickets') : null} />
     </>
   );
 }
@@ -4366,7 +4393,8 @@ function TargetGrid({ storesMeta, targets, saveTargets, metaBusy }) {
    ---------------------------------------------------------------------
    Nạp tay file "Export Ticket" (hệ thống CSKH) -> csTickets/{ID phiếu ghi}, 1 doc/phiếu,
    nạp lại cùng phiếu là ghi đè (trạng thái mới nhất). KHÔNG lưu số điện thoại / email /
-   tên khách. Trang đọc phiếu theo NGÀY TẠO trong kỳ đang chọn + cùng kỳ tháng trước.
+   tên khách. Tab "Ticket Complain" để nạp + xem đã nạp ngày nào; phân tích nằm trong mục
+   "Customer Service" của Summary (so cùng kỳ tháng trước) và Weekly (so tuần trước).
 ===================================================================== */
 const CS_COLS = {
   id: 'ID phiếu ghi', parentId: 'ID phiếu ghi cha', subject: 'Chủ đề', agent: 'Tên chuyên viên', source: 'Nguồn',
@@ -4522,7 +4550,7 @@ function csCount(list, key, { split, empty } = {}) {
 }
 
 /* Cột ngang đếm số phiếu, kèm cột xám cùng kỳ tháng trước; bấm để lọc. */
-function csBarOption(rows, prevOf, { labelWidth = 150, color = BRAND_HEX, sel } = {}) {
+function csBarOption(rows, prevOf, { labelWidth = 150, color = BRAND_HEX, sel, prevName = 'Cùng kỳ tháng trước' } = {}) {
   const list = [...rows].reverse();
   return {
     ...ANIM,
@@ -4531,7 +4559,7 @@ function csBarOption(rows, prevOf, { labelWidth = 150, color = BRAND_HEX, sel } 
       ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
       formatter: (ps) => {
         const r = list[ps[0].dataIndex], p = prevOf ? prevOf(r.name) : null;
-        return `<b>${r.name}</b><br/>Kỳ này <b>${r.n}</b> phiếu` + (prevOf ? `<br/>Cùng kỳ tháng trước <b>${p || 0}</b>` : '')
+        return `<b>${r.name}</b><br/>Kỳ này <b>${r.n}</b> phiếu` + (prevOf ? `<br/>${prevName} <b>${p || 0}</b>` : '')
           + (prevOf && p ? `<br/>Chênh lệch <b>${(r.n - p >= 0 ? '+' : '') + pct1(pctDiff(r.n, p))}</b>` : '');
       },
     },
@@ -4546,155 +4574,118 @@ function csBarOption(rows, prevOf, { labelWidth = 150, color = BRAND_HEX, sel } 
         itemStyle: { color: (p) => (sel && sel !== list[p.dataIndex].name ? '#E3D3B5' : color), borderRadius: [0, 4, 4, 0] },
         label: { show: true, position: 'right', distance: 6, color: INK.txt, fontSize: 10.5, fontWeight: 700, fontFamily: FONT },
         data: list.map((r) => r.n) },
-      ...(prevOf ? [{ name: 'Cùng kỳ tháng trước', type: 'bar', barMaxWidth: 16, itemStyle: { color: '#DCD8D3', borderRadius: [0, 4, 4, 0] },
+      ...(prevOf ? [{ name: prevName, type: 'bar', barMaxWidth: 16, itemStyle: { color: '#DCD8D3', borderRadius: [0, 4, 4, 0] },
         data: list.map((r) => prevOf(r.name) || 0) }] : []),
     ],
   };
 }
 
-function CSUploadCard({ onSaved }) {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
-  const run = async (files) => {
-    const f = [...files].find((x) => /\.(xlsx|xls|csv)$/i.test(x.name));
-    if (!f || busy) return;
-    setBusy(true); setErr(''); setMsg('Đang đọc ' + f.name + '…');
-    try {
-      const list = parseTicketFile(await f.arrayBuffer());
-      const ts = firebase.firestore.FieldValue.serverTimestamp();
-      for (let i = 0; i < list.length; i += 400) {
-        const batch = FS.batch();
-        for (const t of list.slice(i, i + 400)) batch.set(FS.collection('csTickets').doc(t.id), { ...t, importedAt: ts });
-        await batch.commit();
-        setMsg(`Đang lưu ${Math.min(i + 400, list.length)}/${list.length} phiếu…`);
-      }
-      const ds = list.map((t) => t.date).sort();
-      setMsg(`✓ Đã nạp ${list.length} phiếu (tạo từ ${dFull(ds[0])} đến ${dFull(ds[ds.length - 1])}). Phiếu đã có thì được cập nhật trạng thái mới nhất.`);
-      onSaved && onSaved(ds[0], ds[ds.length - 1]);
-    } catch (e) { setErr(e.message || String(e)); setMsg(''); }
-    setBusy(false);
-  };
-  return (
-    <div className="card">
-      <div className="card-h"><div><h3>Nạp file Export Ticket</h3><p>File xuất từ hệ thống CSKH · nạp lại file mới là cập nhật trạng thái phiếu cũ, không nhân đôi · không lưu SĐT / email khách</p></div></div>
-      <div className="card-b">
-        {LOCAL ? <div className="banner">Chế độ xem trước local không ghi được — mở bản thật (đã đăng nhập) để nạp.</div> : (
-          <label className="upl-box" style={busy ? { opacity: 0.6, pointerEvents: 'none' } : null}
-            onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); run(e.dataTransfer.files); }}>
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files; e.target.value = ''; run(f); }} />
-            <Ic.up size={22} style={{ margin: '0 auto 8px', color: 'var(--brand)' }} />
-            <div style={{ fontWeight: 600 }}>Bấm để chọn hoặc kéo thả file Export Ticket (.xlsx)</div>
-            <div className="hint">Cần các cột: ID phiếu ghi, Thời điểm tạo, Phân loại Ticket, Type Level 1/2, Cửa hàng, Khu vực…</div>
-          </label>
-        )}
-        {msg && <div className="imp-log" style={{ marginTop: 12 }}>{msg}</div>}
-        {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
-      </div>
-    </div>
-  );
-}
-
-function CSPage({ data }) {
-  const { cur, range, storesMeta, lists } = data;
-  const momRange = data.momRange || { from: monthBack(range.from), to: monthBack(range.to) };
-  const [tk, setTk] = useState({ key: null, now: null, prev: null, busy: false, err: '' });
-  const [ver, setVer] = useState(0);
-  const [f, setF] = useState({});            // bộ lọc: type1, type2, store, region, channel, verdict, ticketType
-  const [noSpam, setNoSpam] = useState(true);
-  const [q, setQ] = useState('');
-  const [limit, setLimit] = useState(40);
-  const [showUp, setShowUp] = useState(false);
-  const [storeMap, setStoreMap] = useState({}); // chọn tay: { tên trong phiếu: mã CH }
-
-  const key = range.from + '_' + range.to + '_' + ver;
+/* Tải phiếu của kỳ đang xem + kỳ so sánh. ver đổi (vừa nạp file) là đọc lại. */
+function useCsTickets(range, cmpRange) {
+  const [st, setSt] = useState({ key: null, now: null, prev: null, err: '' });
+  const key = range.from + range.to + cmpRange.from + cmpRange.to;
   useEffect(() => {
     let live = true;
-    setTk((x) => ({ ...x, busy: true, err: '' }));
-    Promise.all([loadTickets(range.from, range.to), loadTickets(momRange.from, momRange.to)])
-      .then(([a, b]) => { if (live) setTk({ key, now: a, prev: b, busy: false, err: '' }); })
-      .catch((e) => { if (live) setTk((x) => ({ ...x, busy: false, err: e.message })); });
+    Promise.all([loadTickets(range.from, range.to), loadTickets(cmpRange.from, cmpRange.to)])
+      .then(([a, b]) => { if (live) setSt({ key, now: a, prev: b, err: '' }); })
+      .catch((e) => { if (live) setSt({ key, now: [], prev: [], err: e.message }); });
     return () => { live = false; };
   }, [key]);
-  useEffect(() => {
-    loadCollection('config').then((c) => { const m = c.find((x) => x.id === 'csStoreMap'); if (m) { const { id, updatedAt, ...rest } = m; setStoreMap(rest.map || {}); } }).catch(() => {});
-  }, []);
+  return st.key === key ? st : { now: null, prev: null, err: '' };
+}
 
-  const meta = useMemo(() => { const m = {}; for (const s of storesMeta || []) m[s.id] = s; return m; }, [storesMeta]);
-  const autoMatch = useMemo(() => {
+/* Tên cửa hàng trong phiếu -> mã chi nhánh Fabi: chọn tay (config/csStoreMap) thắng, còn lại ghép tự động. */
+function useCsStoreOf(storesMeta, csStoreMap, tickets) {
+  const auto = useMemo(() => {
     const names = {};
-    for (const t of [...(tk.now || []), ...(tk.prev || [])]) if (t.storeName) names[t.storeName] = t.region;
+    for (const t of tickets) if (t.storeName) names[t.storeName] = t.region;
     const out = {};
     for (const [n, rg] of Object.entries(names)) out[n] = matchCsStore(n, rg, storesMeta || []);
     return out;
-  }, [tk, storesMeta]);
-  const storeOf = useCallback((t) => (t.storeName ? storeMap[t.storeName] || autoMatch[t.storeName] || null : null), [storeMap, autoMatch]);
-  const storeLabel = (t) => { const id = storeOf(t); return id ? storeShort((meta[id] || {}).storeName || t.storeName) : t.storeName; };
+  }, [tickets, storesMeta]);
+  return useCallback((t) => (t.storeName ? (csStoreMap || {})[t.storeName] || auto[t.storeName] || null : null), [csStoreMap, auto]);
+}
 
-  const pass = (t, skip) => (!noSpam || t.ticketType !== 'Spam')
+const csIsComplaint = (t) => t.ticketType === 'Khiếu nại' || t.ticketType === 'An toàn vệ sinh thực phẩm';
+
+/* Mục "Customer Service" trong Summary / Weekly. So với kỳ cmpRange (cùng kỳ tháng trước ở
+   Summary, tuần trước ở Weekly). keep/geoFilter: bộ lọc miền/tỉnh/AM/chi nhánh của trang -
+   đang lọc thì chỉ giữ phiếu đã ghép được về chi nhánh nằm trong lát cắt. */
+function CSSection({ cur, cmpSales, range, cmpRange, cmpLabel, storesMeta, csStoreMap, keep, geoFilter, onGoTickets }) {
+  const tk = useCsTickets(range, cmpRange);
+  const [f, setF] = useState({});
+  const [noSpam, setNoSpam] = useState(true);
+  const [showList, setShowList] = useState(false);
+  const [q, setQ] = useState('');
+  const [limit, setLimit] = useState(40);
+  const cmpShort = cmpLabel === 'tuần trước' ? 'Tuần trước' : 'Cùng kỳ tháng trước';
+
+  const meta = useMemo(() => { const m = {}; for (const s of storesMeta || []) m[s.id] = s; return m; }, [storesMeta]);
+  const both = useMemo(() => [...(tk.now || []), ...(tk.prev || [])], [tk.now, tk.prev]);
+  const storeOf = useCsStoreOf(storesMeta, csStoreMap, both);
+  const storeLabel = useCallback((t) => { const id = storeOf(t); return id ? storeShort((meta[id] || {}).storeName || t.storeName) : t.storeName; }, [storeOf, meta]);
+  const inGeo = useCallback((t) => { if (!geoFilter) return true; const id = storeOf(t); return !!id && keep(id); }, [geoFilter, keep, storeOf]);
+
+  const pass = (t, skip) => inGeo(t) && (!noSpam || t.ticketType !== 'Spam')
     && (skip === 'type1' || !f.type1 || t.type1 === f.type1)
     && (skip === 'type2' || !f.type2 || t.type2 === f.type2)
     && (skip === 'store' || !f.store || storeLabel(t) === f.store)
     && (skip === 'region' || !f.region || t.region === f.region)
     && (skip === 'channel' || !f.channel || t.channel === f.channel)
-    && (skip === 'verdict' || !f.verdict || csVerdict(t) === f.verdict)
-    && (skip === 'ticketType' || !f.ticketType || t.ticketType === f.ticketType);
+    && (skip === 'verdict' || !f.verdict || csVerdict(t) === f.verdict);
   const all = tk.now || [], allPrev = tk.prev || [];
-  const list = useMemo(() => all.filter((t) => pass(t)), [all, f, noSpam, storeOf]);
-  const listPrev = useMemo(() => allPrev.filter((t) => pass(t)), [allPrev, f, noSpam, storeOf]);
+  const list = useMemo(() => all.filter((t) => pass(t)), [all, f, noSpam, storeLabel, inGeo]);
+  const listPrev = useMemo(() => allPrev.filter((t) => pass(t)), [allPrev, f, noSpam, storeLabel, inGeo]);
   const S = useMemo(() => csStats(list), [list]);
   const P = useMemo(() => csStats(listPrev), [listPrev]);
   const toggle = (k, v) => { setF((x) => ({ ...x, [k]: x[k] === v ? null : v })); setLimit(40); };
 
-  /* TC cùng lát cắt (lọc chi nhánh / khu vực thì chỉ tính TC của các chi nhánh đó) để ra
-     "khiếu nại / 10.000 hoá đơn" so được giữa các kỳ và giữa các chi nhánh. */
-  const tcOf = (sum, ids) => Object.values((sum && sum.byStore) || {}).reduce((a, s) => a + (!ids || ids.has(s.id) ? s.bills || 0 : 0), 0);
+  /* TC cùng lát cắt để ra khiếu nại / 10.000 hoá đơn */
   const sliceIds = useMemo(() => {
     if (!f.store && !f.region) return null;
     const ids = new Set();
-    for (const t of all) if ((!f.store || storeLabel(t) === f.store) && (!f.region || t.region === f.region)) { const id = storeOf(t); if (id) ids.add(id); }
+    for (const t of both) if ((!f.store || storeLabel(t) === f.store) && (!f.region || t.region === f.region)) { const id = storeOf(t); if (id) ids.add(id); }
     return ids;
-  }, [all, f.store, f.region, storeOf]);
-  const tcNow = tcOf(cur, sliceIds);
-  const tcPrev = tcOf(data.mom, sliceIds);
+  }, [both, f.store, f.region, storeOf, storeLabel]);
+  const tcOf = (sum) => Object.values((sum && sum.byStore) || {})
+    .reduce((a, s) => a + ((!sliceIds || sliceIds.has(s.id)) && (!geoFilter || keep(s.id)) ? s.bills || 0 : 0), 0);
+  const tcNow = tcOf(cur), tcPrev = tcOf(cmpSales);
   const per10k = tcNow ? S.complaints / tcNow * 1e4 : null;
   const per10kPrev = tcPrev ? P.complaints / tcPrev * 1e4 : null;
 
-  /* ---- Theo ngày: phiếu khiếu nại / khác ---- */
   const dayKeys = useMemo(() => { const o = []; for (let k = range.from; k <= range.to; k = dAdd(k, 1)) o.push(k); return o; }, [range.from, range.to]);
   const dayOption = useMemo(() => {
     const cnt = (pred) => dayKeys.map((k) => list.filter((t) => t.date === k && pred(t)).length);
-    const isC = (t) => t.ticketType === 'Khiếu nại' || t.ticketType === 'An toàn vệ sinh thực phẩm';
-    const kn = cnt(isC), spam = cnt((t) => t.ticketType === 'Spam'), other = cnt((t) => !isC(t) && t.ticketType !== 'Spam');
-    const bar = (name, data, color, top) => ({ name, type: 'bar', stack: 'a', barMaxWidth: 18, itemStyle: { color, borderRadius: top ? [4, 4, 0, 0] : 0, borderColor: '#fff', borderWidth: 1 }, data });
+    const bar = (name, data, color, top) => ({ name, type: 'bar', stack: 'a', barMaxWidth: 22, itemStyle: { color, borderRadius: top ? [4, 4, 0, 0] : 0, borderColor: '#fff', borderWidth: 1 }, data });
+    const showSpam = !noSpam;
     return {
       ...ANIM,
       grid: { left: 36, right: 12, top: 30, bottom: 26 },
       tooltip: { ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
         formatter: (ps) => `<b>${dFull(dayKeys[ps[0].dataIndex])} · ${wdOf(dayKeys[ps[0].dataIndex])}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value}</b>`).join('<br/>') },
       legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 11, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
-      xAxis: { type: 'category', data: dayKeys.map(dShort), ...AXIS_STYLE, splitLine: { show: false } },
+      xAxis: { type: 'category', data: dayKeys.map((k) => dShort(k) + (dayKeys.length <= 7 ? ' ' + wdOf(k) : '')), ...AXIS_STYLE, splitLine: { show: false } },
       yAxis: { type: 'value', minInterval: 1, ...AXIS_STYLE, axisLine: { show: false } },
-      series: [bar('Khiếu nại', kn, BRAND_HEX), bar('Yêu cầu / góp ý', other, SERIES[0]), ...(noSpam ? [] : [bar('Spam', spam, '#C3C2B7', true)])],
+      series: [bar('Khiếu nại', cnt(csIsComplaint), BRAND_HEX, false),
+        bar('Yêu cầu / góp ý', cnt((t) => !csIsComplaint(t) && t.ticketType !== 'Spam'), SERIES[0], !showSpam),
+        ...(showSpam ? [bar('Spam', cnt((t) => t.ticketType === 'Spam'), '#C3C2B7', true)] : [])],
     };
   }, [dayKeys, list, noSpam]);
 
-  /* ---- Kết luận xác minh (chỉ phiếu khiếu nại) ---- */
   const verdictRows = CS_VERDICTS.map((v) => ({ ...v, n: S.verdict[v.k] || 0, p: P.verdict[v.k] || 0 })).filter((v) => v.n || v.p);
   const verdictOption = useMemo(() => ({
     ...ANIM,
     tooltip: { ...TIP, trigger: 'item', formatter: (p) => `<b>${p.name}</b><br/><b>${p.value}</b> phiếu · ${p.percent}%` },
     legend: { orient: 'vertical', right: 0, top: 'middle', icon: 'circle', itemWidth: 8, itemHeight: 8, itemGap: 9, textStyle: { color: INK.txt, fontSize: 11, fontFamily: FONT } },
     series: [{
-      type: 'pie', radius: ['52%', '76%'], center: ['30%', '52%'], avoidLabelOverlap: true, padAngle: 1.5,
+      type: 'pie', radius: ['52%', '76%'], center: ['28%', '52%'], padAngle: 1.5,
       itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 }, label: { show: false },
       data: verdictRows.filter((v) => v.n).map((v) => ({ name: v.l, value: v.n, k: v.k, itemStyle: { color: v.c, opacity: f.verdict && f.verdict !== v.k ? 0.3 : 1 } })),
     }],
-    graphic: [{ type: 'text', left: '30%', top: '45%', style: { text: String(S.complaints), fill: INK.txt, font: `800 20px ${FONT}`, textAlign: 'center' } },
-      { type: 'text', left: '30%', top: '56%', style: { text: 'khiếu nại', fill: INK.mute, font: `600 11px ${FONT}`, textAlign: 'center' } }],
+    graphic: [{ type: 'text', left: '28%', top: '45%', style: { text: String(S.complaints), fill: INK.txt, font: `800 20px ${FONT}`, textAlign: 'center' } },
+      { type: 'text', left: '28%', top: '56%', style: { text: 'khiếu nại', fill: INK.mute, font: `600 11px ${FONT}`, textAlign: 'center' } }],
   }), [verdictRows, S.complaints, f.verdict]);
 
-  /* ---- Đếm theo nhóm (mỗi biểu đồ bỏ qua bộ lọc của chính nó để còn bấm đổi được) ---- */
   const cnt = (field, opts) => csCount(all.filter((t) => pass(t, field)), field, opts);
   const cntPrev = (field) => { const m = {}; for (const r of csCount(allPrev.filter((t) => pass(t, field)), field)) m[r.name] = r.n; return (k) => m[k] || 0; };
   const type1 = cnt('type1'), type2 = csCount(list, 'type2'), channel = cnt('channel');
@@ -4703,41 +4694,33 @@ function CSPage({ data }) {
   const results = csCount(list, 'result');
   const onBar = (k) => (p) => toggle(k, p.name);
 
-  /* ---- Theo chi nhánh ---- */
   const storeRows = useMemo(() => {
     const m = {};
     for (const t of all.filter((x) => pass(x, 'store'))) {
       if (!t.storeName) continue;
       const nm = storeLabel(t), id = storeOf(t);
-      const r = (m[nm] ||= { name: nm, id, region: t.region, dm: t.dm, n: 0, kn: 0, sai: 0, types: {} });
+      const r = (m[nm] ||= { name: nm, id, region: t.region, n: 0, kn: 0, sai: 0, types: {} });
       r.n++;
-      if (t.ticketType === 'Khiếu nại' || t.ticketType === 'An toàn vệ sinh thực phẩm') r.kn++;
+      if (csIsComplaint(t)) r.kn++;
       if (csVerdict(t) === 'sai') r.sai++;
       if (t.type1) r.types[t.type1] = (r.types[t.type1] || 0) + 1;
     }
     const prev = {};
-    for (const t of allPrev.filter((x) => pass(x, 'store'))) if (t.storeName && (t.ticketType === 'Khiếu nại' || t.ticketType === 'An toàn vệ sinh thực phẩm')) prev[storeLabel(t)] = (prev[storeLabel(t)] || 0) + 1;
+    for (const t of allPrev.filter((x) => pass(x, 'store'))) if (t.storeName && csIsComplaint(t)) prev[storeLabel(t)] = (prev[storeLabel(t)] || 0) + 1;
     return Object.values(m).map((r) => {
       const tc = r.id && cur.byStore[r.id] ? cur.byStore[r.id].bills : 0;
       const top = Object.entries(r.types).sort((a, b) => b[1] - a[1])[0];
-      return { ...r, tc, rate: tc ? r.kn / tc * 1e4 : null, prevKn: prev[r.name] || 0, top: top ? top[0] + ' (' + top[1] + ')' : '—' };
+      return { ...r, rate: tc ? r.kn / tc * 1e4 : null, prevKn: prev[r.name] || 0, top: top ? top[0] + ' (' + top[1] + ')' : '—' };
     }).sort((a, b) => b.kn - a.kn || b.n - a.n);
-  }, [all, allPrev, f, noSpam, storeOf, cur]);
-  const unmatched = useMemo(() => [...new Set([...all, ...allPrev].filter((t) => t.storeName && !storeOf(t)).map((t) => t.storeName))], [all, allPrev, storeOf]);
-  const saveMap = async (name, id) => {
-    const next = { ...storeMap, [name]: id };
-    setStoreMap(next);
-    if (!LOCAL) await FS.collection('config').doc('csStoreMap').set({ map: next, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-  };
+  }, [all, allPrev, f, noSpam, storeLabel, storeOf, inGeo, cur]);
 
-  /* ---- Theo khu vực / DM ---- */
   const groupRows = (keyOf) => {
     const m = {};
     for (const t of list) {
       const k = keyOf(t) || 'Chưa rõ';
       const r = (m[k] ||= { name: k, n: 0, kn: 0, sai: 0, dung: 0, slaMiss: 0 });
       r.n++;
-      if (t.ticketType === 'Khiếu nại' || t.ticketType === 'An toàn vệ sinh thực phẩm') r.kn++;
+      if (csIsComplaint(t)) r.kn++;
       const v = csVerdict(t); if (v === 'sai') r.sai++; if (v === 'dung') r.dung++;
       if (t.sla && !noAccent(t.sla).startsWith('dap ung')) r.slaMiss++;
     }
@@ -4745,14 +4728,12 @@ function CSPage({ data }) {
   };
   const regionRows = groupRows((t) => t.region), dmRows = groupRows((t) => t.dm);
 
-  /* ---- Chuyên viên ---- */
   const agentRows = useMemo(() => {
     const m = {};
     for (const t of list) {
-      const k = t.agent || 'Chưa gán';
-      const r = (m[k] ||= { name: k, n: 0, hrs: [], slaN: 0, slaOk: 0, open: 0 });
+      const r = (m[t.agent || 'Chưa gán'] ||= { name: t.agent || 'Chưa gán', n: 0, hrs: [], slaN: 0, slaOk: 0, open: 0 });
       r.n++;
-      if (t.resolvedAt) { const h = (csMs(t.resolvedAt) - csMs(t.createdAt)) / 3.6e6; if (h >= 0) r.hrs.push(h); }
+      if (t.resolvedAt) { const hh = (csMs(t.resolvedAt) - csMs(t.createdAt)) / 3.6e6; if (hh >= 0) r.hrs.push(hh); }
       if (t.sla) { r.slaN++; if (noAccent(t.sla).startsWith('dap ung')) r.slaOk++; }
       if (CS_OPEN.includes(String(t.status || '').toLowerCase())) r.open++;
     }
@@ -4760,7 +4741,6 @@ function CSPage({ data }) {
       .sort((a, b) => b.n - a.n);
   }, [list]);
 
-  /* ---- Danh sách phiếu ---- */
   const shown = useMemo(() => {
     const k = noAccent(q.trim());
     return list.filter((t) => !k || noAccent([t.subject, t.storeName, t.orderCode, t.id, t.agent, t.type2].join(' ')).includes(k))
@@ -4772,15 +4752,27 @@ function CSPage({ data }) {
       t.resolvedAt ? ((csMs(t.resolvedAt) - csMs(t.createdAt)) / 3.6e6).toFixed(1) : '', t.agent || '', t.result || '', t.subject || '']),
   ]);
 
-  const cmp = { deltaLabel: 'vs cùng kỳ tháng trước', noPrevHint: 'chưa có phiếu cùng kỳ tháng trước' };
-  const hasPrev = allPrev.length > 0;
-  const cp = (v) => (hasPrev ? v : null);
-  const chips = Object.entries(f).filter(([, v]) => v);
-  const chipLabel = { type1: 'Lỗi', type2: 'Chi tiết', store: 'Chi nhánh', region: 'Khu vực', channel: 'Kênh', verdict: 'Kết luận', ticketType: 'Phân loại' };
-  const statusTag = (s) => { const x = String(s || '').toLowerCase(); return <span className={cls('tag', CS_OPEN.includes(x) ? 't-amber' : x === 'solved' ? 't-blue' : 't-gray')}>{x || '—'}</span>; };
-
   if (tk.err) return <div className="banner"><b>Không đọc được phiếu CS:</b>&nbsp;{tk.err}</div>;
   if (!tk.now) return <div className="empty">Đang tải phiếu CS…</div>;
+  if (!all.length) {
+    return (
+      <div className="empty">
+        Chưa có phiếu CS nào trong {rangeLabel(range)}. {onGoTickets && <button className="btn sm" style={{ marginLeft: 8 }} onClick={onGoTickets}>Mở tab Ticket Complain để nạp</button>}
+      </div>
+    );
+  }
+
+  /* Kỳ so sánh phải nạp đủ ngày mới so %: nạp dở (vd tuần trước mới có 1/7 ngày) mà vẫn so
+     thì ra +1600% vô nghĩa. Ngày nào cũng có phiếu nên đếm số ngày có phiếu là đủ biết. */
+  const cmpDays = dDiff(cmpRange.from, cmpRange.to) + 1;
+  const prevDays = new Set(allPrev.map((t) => t.date)).size;
+  const hasPrev = prevDays >= cmpDays;
+  const cmp = { deltaLabel: 'vs ' + cmpLabel, noPrevHint: prevDays ? cmpLabel + ' mới nạp ' + prevDays + '/' + cmpDays + ' ngày — chưa so' : 'chưa có phiếu ' + cmpLabel };
+  const cp = (v) => (hasPrev ? v : null);
+  const chips = Object.entries(f).filter(([, v]) => v);
+  const chipLabel = { type1: 'Lỗi', type2: 'Chi tiết', store: 'Chi nhánh', region: 'Khu vực', channel: 'Kênh', verdict: 'Kết luận' };
+  const statusTag = (s) => { const x = String(s || '').toLowerCase(); return <span className={cls('tag', CS_OPEN.includes(x) ? 't-amber' : x === 'solved' ? 't-blue' : 't-gray')}>{x || '—'}</span>; };
+  const unmatched = geoFilter ? all.filter((t) => t.storeName && !storeOf(t)).length : 0;
 
   return (
     <>
@@ -4789,62 +4781,55 @@ function CSPage({ data }) {
           <span className="chip" key={k}><small>{chipLabel[k]}</small><b>{k === 'verdict' ? (CS_VERDICTS.find((x) => x.k === v) || {}).l : v}</b>
             <button onClick={() => toggle(k, v)} aria-label={'Bỏ lọc ' + chipLabel[k]}>✕</button></span>
         ))}
-        {chips.length ? <button className="btn sm" onClick={() => setF({})}>Bỏ tất cả bộ lọc</button>
-          : <span className="hint">Bấm vào cột, miếng bánh hay dòng chi nhánh để lọc cả trang.</span>}
+        {chips.length ? <button className="btn sm" onClick={() => setF({})}>Bỏ lọc CS</button>
+          : <span className="hint">Bấm cột, miếng bánh hay dòng chi nhánh để lọc riêng mục này{geoFilter ? ' · đang theo bộ lọc chi nhánh/miền của trang' : ''}.</span>}
+        {!hasPrev && prevDays > 0 && <span className="tag t-amber">{cmpLabel} mới nạp {prevDays}/{cmpDays} ngày · số so sánh chưa đủ</span>}
         <label className="hint" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
           <span className={cls('sw', noSpam && 'on')} onClick={() => setNoSpam((v) => !v)}><i /></span> Bỏ phiếu Spam
         </label>
-        <button className="btn sm" onClick={() => setShowUp((v) => !v)}><Ic.up size={14} /> Nạp file ticket</button>
       </div>
-      {(showUp || (!all.length && !allPrev.length)) && <CSUploadCard onSaved={() => setVer((v) => v + 1)} />}
-      {!all.length ? (
-        <div className="empty">Kỳ {rangeLabel(range)} chưa có phiếu CS nào. {allPrev.length ? '' : 'Nạp file Export Ticket ở trên, rồi chọn khoảng ngày có phiếu (vd 19/07 – 26/07/2026).'}</div>
-      ) : (
-      <>
-      <Section n="1" title="Tổng quan CS" sub={`${rangeLabel(range)} · so với ${rangeLabel(momRange)} · ${noSpam ? 'đã bỏ Spam' : 'gồm cả Spam'}`} />
+      {unmatched > 0 && <div className="hint" style={{ margin: '-4px 0 10px' }}>{unmatched} phiếu chưa ghép được chi nhánh nên không nằm trong bộ lọc — ghép tay ở tab Ticket Complain.</div>}
+
       <div className="kpi-row">
-        <Kpi hero bad label="Tổng phiếu" value={money(S.n)} cur={S.n} prev={cp(P.n)} {...cmp} />
+        <Kpi hero bad label="Tổng phiếu CS" value={money(S.n)} cur={S.n} prev={cp(P.n)} {...cmp} />
         <Kpi bad label="Khiếu nại" value={money(S.complaints)} cur={S.complaints} prev={cp(P.complaints)} {...cmp} />
         <Kpi bad tint="blue" label="Khiếu nại / 10.000 hoá đơn" value={per10k == null ? '—' : per10k.toFixed(2).replace('.', ',')}
-          cur={per10k} prev={cp(per10kPrev)} {...cmp} />
+          cur={per10k} prev={cp(per10kPrev)} {...cmp} hint={tcNow ? null : 'chưa có số hoá đơn của kỳ này'} />
         <Kpi label="Tỉ lệ lỗi do cửa hàng" value={S.wrongRate == null ? '—' : pct1(S.wrongRate)}
-          hint={`${S.verdict.sai || 0} sai / ${S.judged} ca đã có kết luận${P.wrongRate != null && hasPrev ? ' · cùng kỳ ' + pct1(P.wrongRate) : ''}`} />
+          hint={`${S.verdict.sai || 0} sai / ${S.judged} ca đã có kết luận${P.wrongRate != null && hasPrev ? ' · ' + cmpLabel + ' ' + pct1(P.wrongRate) : ''}`} />
       </div>
       <div className="kpi-row">
         <Kpi sm label="Đáp ứng SLA" value={S.sla == null ? '—' : pct1(S.sla)}
-          hint={S.slaN ? `${S.slaMiss} phiếu trễ / ${S.slaN}${P.sla != null && hasPrev ? ' · cùng kỳ ' + pct1(P.sla) : ''}` : 'chưa có số SLA'} />
+          hint={S.slaN ? `${S.slaMiss} phiếu trễ / ${S.slaN}${P.sla != null && hasPrev ? ' · ' + cmpLabel + ' ' + pct1(P.sla) : ''}` : 'chưa có số SLA'} />
         <Kpi sm label="Thời gian xử lý (trung vị)" value={csHrs(S.medHrs)}
-          hint={`TB ${csHrs(S.avgHrs)} · gán chuyên viên sau ${S.medFirst == null ? '—' : csHrs(S.medFirst / 60)}${P.medHrs != null && hasPrev ? ' · cùng kỳ ' + csHrs(P.medHrs) : ''}`} />
+          hint={`TB ${csHrs(S.avgHrs)}${P.medHrs != null && hasPrev ? ' · ' + cmpLabel + ' ' + csHrs(P.medHrs) : ''}`} />
         <Kpi sm label="Phiếu còn mở" value={money(S.open)} hint={S.n ? pct1(S.open / S.n * 100) + ' tổng phiếu · open / new / pending' : null} />
-        <Kpi sm label="Ca đền bù" value={money(S.comp)} hint={S.compCost ? 'chi phí ghi nhận ' + money(S.compCost) + ' đ (phí ship + đơn)' : 'chưa ghi nhận chi phí'} />
+        <Kpi sm label="Ca đền bù" value={money(S.comp)} hint={S.compCost ? 'chi phí ghi nhận ' + money(S.compCost) + ' đ' : 'chưa ghi nhận chi phí'} />
       </div>
 
       <div className="dash">
         <div className="c8">
-          <ChartCard title="Phiếu theo ngày" sub="Chồng theo phân loại · ngày tạo phiếu" height={280} option={dayOption}
+          <ChartCard title="Phiếu CS theo ngày" sub="Chồng theo phân loại · theo ngày tạo phiếu" height={280} option={dayOption}
             table={(
               <table><thead><tr><th>Ngày</th><th className="r">Tổng</th><th className="r">Khiếu nại</th></tr></thead>
                 <tbody>{dayKeys.map((k) => { const d = list.filter((t) => t.date === k); return (
-                  <tr key={k}><td>{dShort(k)} · {wdOf(k)}</td><td className="r">{d.length}</td><td className="r">{d.filter((t) => t.ticketType === 'Khiếu nại').length}</td></tr>); })}</tbody></table>
+                  <tr key={k}><td>{dShort(k)} · {wdOf(k)}</td><td className="r">{d.length}</td><td className="r">{d.filter(csIsComplaint).length}</td></tr>); })}</tbody></table>
             )} />
         </div>
         <div className="c4">
-          <ChartCard title="Kết luận xác minh" sub="Phiếu khiếu nại · QC/AM > DM > phân loại ban đầu · bấm để lọc" height={280}
+          <ChartCard title="Kết luận xác minh" sub="Phiếu khiếu nại · QC/AM > DM > phân loại ban đầu" height={280}
             option={verdictOption} onClick={(p) => p.data && toggle('verdict', p.data.k)} empty={!S.complaints ? 'Không có phiếu khiếu nại.' : null}
             table={(
-              <table><thead><tr><th>Kết luận</th><th className="r">Kỳ này</th><th className="r">Cùng kỳ</th></tr></thead>
+              <table><thead><tr><th>Kết luận</th><th className="r">Kỳ này</th><th className="r">{cmpShort}</th></tr></thead>
                 <tbody>{verdictRows.map((v) => <tr key={v.k}><td><i className="dot" style={{ background: v.c }} /> {v.l}</td><td className="r">{v.n}</td><td className="r">{v.p}</td></tr>)}</tbody></table>
             )} />
         </div>
-      </div>
 
-      <Section n="2" title="Phân loại lỗi" sub="Khách phàn nàn về cái gì — bấm một loại lỗi để xem chi tiết cấp 2 và lọc cả trang" />
-      <div className="dash">
         <div className="c6">
-          <ChartCard title="Loại lỗi (cấp 1)" sub="Cột nâu kỳ này, xám cùng kỳ tháng trước" height={barCardH(type1.length, 30, 260, 480)}
-            option={csBarOption(type1, type1Prev, { sel: f.type1 })} onClick={onBar('type1')} empty={!type1.length ? 'Chưa phân loại lỗi.' : null}
+          <ChartCard title="Loại lỗi (cấp 1)" sub={`Cột nâu kỳ này, xám ${cmpLabel} · bấm để xem chi tiết`} height={barCardH(type1.length, 30, 260, 480)}
+            option={csBarOption(type1, type1Prev, { sel: f.type1, prevName: cmpShort })} onClick={onBar('type1')} empty={!type1.length ? 'Chưa phân loại lỗi.' : null}
             table={(
-              <table><thead><tr><th>Loại lỗi</th><th className="r">Kỳ này</th><th className="r">Tỉ trọng</th><th className="r">Cùng kỳ</th></tr></thead>
+              <table><thead><tr><th>Loại lỗi</th><th className="r">Kỳ này</th><th className="r">Tỉ trọng</th><th className="r">{cmpShort}</th></tr></thead>
                 <tbody>{type1.map((r) => <tr key={r.name}><td>{r.name}</td><td className="r">{r.n}</td><td className="r">{pct1(r.n / (type1.reduce((a, x) => a + x.n, 0) || 1) * 100)}</td><td className="r">{type1Prev(r.name)}</td></tr>)}</tbody></table>
             )} />
         </div>
@@ -4859,22 +4844,20 @@ function CSPage({ data }) {
         </div>
         <div className="c6">
           <ChartCard title="Kênh tiếp nhận" sub="Khách phản ánh qua đâu · bấm để lọc" height={barCardH(channel.length, 28, 240, 440)}
-            option={csBarOption(channel, channelPrev, { sel: f.channel, labelWidth: 120 })} onClick={onBar('channel')} />
+            option={csBarOption(channel, channelPrev, { sel: f.channel, labelWidth: 120, prevName: cmpShort })} onClick={onBar('channel')}
+            empty={!channel.length ? 'Chưa có kênh.' : null} />
         </div>
         <div className="c6">
           <ChartCard title="Kết quả với khách hàng" sub="Phiếu được xử lý ra sao" height={barCardH(results.length, 30, 240, 440)}
             option={csBarOption(results, null, { color: SERIES[2], labelWidth: 190 })} empty={!results.length ? 'Chưa có kết quả.' : null} />
         </div>
-      </div>
 
-      <Section n="3" title="Chi nhánh & khu vực" sub="Ai bị khiếu nại nhiều, tính trên 10.000 hoá đơn để so công bằng giữa quán đông và quán vắng" />
-      <div className="dash">
         <div className="c8">
           <div className="card" style={{ marginBottom: 0 }}>
-            <div className="card-h"><div><h3>Chi nhánh bị khiếu nại</h3><p>Bấm một dòng để lọc · KN/10k = khiếu nại trên 10.000 hoá đơn cùng kỳ</p></div></div>
+            <div className="card-h"><div><h3>Chi nhánh bị khiếu nại</h3><p>Bấm một dòng để lọc · KN/10k = khiếu nại trên 10.000 hoá đơn cùng kỳ, so công bằng quán đông với quán vắng</p></div></div>
             <div className="scroll-x" style={{ maxHeight: 440, overflowY: 'auto' }}>
               <table className="tb">
-                <thead><tr><th>Chi nhánh</th><th>Khu vực</th><th className="r">Phiếu</th><th className="r">Khiếu nại</th><th className="r">vs CKTT</th><th className="r">Sai QT</th><th className="r">KN/10k HĐ</th><th>Lỗi nhiều nhất</th></tr></thead>
+                <thead><tr><th>Chi nhánh</th><th>Khu vực</th><th className="r">Phiếu</th><th className="r">Khiếu nại</th><th className="r">vs {cmpLabel}</th><th className="r">Sai QT</th><th className="r">KN/10k HĐ</th><th>Lỗi nhiều nhất</th></tr></thead>
                 <tbody>{storeRows.map((r) => (
                   <tr key={r.name} onClick={() => toggle('store', r.name)} style={{ cursor: 'pointer', background: f.store === r.name ? 'var(--brand-wash)' : null }}>
                     <td style={{ fontWeight: 600 }}>{r.name}{!r.id && <span className="tag t-amber" style={{ marginLeft: 6 }}>chưa khớp</span>}</td>
@@ -4894,6 +4877,7 @@ function CSPage({ data }) {
           <Leaderboard title="Cảnh báo leo thang" sub="Tag quá hạn phản hồi (cửa hàng / DM / QC)" tag={tags.length ? tags.reduce((a, r) => a + r.n, 0) + ' lượt' : null}
             rows={tags.map((r) => ({ name: r.name, value: r.n + ' phiếu' }))} />
         </div>
+
         <div className="c6">
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-h"><div><h3>Theo khu vực</h3><p>Bấm để lọc</p></div></div>
@@ -4908,7 +4892,7 @@ function CSPage({ data }) {
         </div>
         <div className="c6">
           <div className="card" style={{ marginBottom: 0 }}>
-            <div className="card-h"><div><h3>Theo DM phụ trách</h3><p>Tỉ lệ sai quy trình trên các ca đã có kết luận</p></div></div>
+            <div className="card-h"><div><h3>Theo DM phụ trách</h3><p>% sai quy trình trên các ca đã có kết luận</p></div></div>
             <div className="scroll-x"><table className="tb">
               <thead><tr><th>DM</th><th className="r">Phiếu</th><th className="r">Khiếu nại</th><th className="r">Sai QT</th><th className="r">% sai</th><th className="r">Trễ SLA</th></tr></thead>
               <tbody>{dmRows.map((r) => (
@@ -4918,32 +4902,11 @@ function CSPage({ data }) {
               ))}</tbody></table></div>
           </div>
         </div>
-        {!!unmatched.length && (
-          <div className="c12">
-            <div className="card" style={{ marginBottom: 0 }}>
-              <div className="card-h"><div><h3>Cửa hàng chưa khớp danh mục</h3><p>Chọn tay một lần là nhớ luôn — để tính được KN/10k hoá đơn cho các quán này</p></div></div>
-              <div className="flt" style={{ flexWrap: 'wrap' }}>
-                {unmatched.map((n) => (
-                  <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <b style={{ fontSize: 13 }}>{n}</b>
-                    <select className="inp" value="" onChange={(e) => e.target.value && saveMap(n, e.target.value)}>
-                      <option value="">— chọn chi nhánh —</option>
-                      {[...(storesMeta || [])].sort((a, b) => storeShort(a.storeName).localeCompare(storeShort(b.storeName), 'vi'))
-                        .map((s) => <option key={s.id} value={s.id}>{storeShort(s.storeName)}</option>)}
-                    </select>
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
 
-      <Section n="4" title="Đội CS & xử lý" sub="Khối lượng, tốc độ xử lý và SLA theo từng chuyên viên" />
-      <div className="dash">
         <div className="c12">
           <div className="card" style={{ marginBottom: 0 }}>
-            <div className="scroll-x" style={{ maxHeight: 420, overflowY: 'auto' }}>
+            <div className="card-h"><div><h3>Đội CS — khối lượng, tốc độ xử lý, SLA</h3><p>Theo chuyên viên phụ trách phiếu</p></div></div>
+            <div className="scroll-x" style={{ maxHeight: 380, overflowY: 'auto' }}>
               <table className="tb">
                 <thead><tr><th>Chuyên viên</th><th className="r">Phiếu</th><th className="r">Tỉ trọng</th><th className="r">Còn mở</th><th className="r">Xử lý TB</th><th className="r">Đáp ứng SLA</th></tr></thead>
                 <tbody>{agentRows.map((r) => (
@@ -4955,35 +4918,253 @@ function CSPage({ data }) {
             </div>
           </div>
         </div>
+
+        <div className="c12">
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-h">
+              <div><h3>Danh sách phiếu</h3><p>{shown.length} phiếu trong lát cắt đang lọc</p></div>
+              <div className="sp">
+                <button className="btn sm" onClick={exportCsv} disabled={!shown.length}><Ic.down size={14} /> Xuất CSV</button>
+                <button className="btn sm" onClick={() => setShowList((v) => !v)}>{showList ? 'Thu gọn' : 'Xem danh sách'}</button>
+              </div>
+            </div>
+            {showList && (
+              <>
+                <div className="flt">
+                  <input className="inp grow" placeholder="Tìm chủ đề, mã đơn, chi nhánh, ID phiếu…" value={q} onChange={(e) => { setQ(e.target.value); setLimit(40); }} />
+                </div>
+                <div className="scroll-x">
+                  <table className="tb">
+                    <thead><tr><th>Tạo lúc</th><th>Phân loại</th><th>Lỗi</th><th>Kết luận</th><th>Chi nhánh</th><th>Kênh</th><th>Trạng thái</th><th className="r">Xử lý</th><th>Chủ đề</th></tr></thead>
+                    <tbody>{shown.slice(0, limit).map((t) => { const v = CS_VERDICTS.find((x) => x.k === csVerdict(t)); return (
+                      <tr key={t.id}>
+                        <td style={{ whiteSpace: 'nowrap', color: 'var(--txt-3)' }}>{dShort(t.date)} {t.createdAt.slice(11, 16)}</td>
+                        <td>{t.ticketType || '—'}</td>
+                        <td>{t.type1 ? <><b style={{ fontWeight: 600 }}>{t.type1}</b>{t.type2 && <small style={{ display: 'block', color: 'var(--txt-3)' }}>{t.type2}</small>}</> : '—'}</td>
+                        <td><i className="dot" style={{ background: v.c }} /> <small>{v.l}</small></td>
+                        <td>{storeLabel(t) || '—'}</td><td style={{ color: 'var(--txt-3)' }}>{t.channel || t.source || '—'}</td>
+                        <td>{statusTag(t.status)}</td>
+                        <td className="r" style={{ whiteSpace: 'nowrap' }}>{t.resolvedAt ? csHrs((csMs(t.resolvedAt) - csMs(t.createdAt)) / 3.6e6) : '—'}</td>
+                        <td style={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.subject || ''}>{t.subject || '—'}</td>
+                      </tr>); })}</tbody>
+                  </table>
+                  {shown.length > limit && <div style={{ padding: 14, textAlign: 'center' }}><button className="btn" onClick={() => setLimit((l) => l + 80)}>Xem thêm ({shown.length - limit} phiếu)</button></div>}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ===================== TAB TICKET COMPLAIN: NẠP + ĐÃ NẠP NGÀY NÀO ===================== */
+/* config/csCoverage = { days: { 'YYYY-MM-DD': số phiếu }, imports: [{ at, file, n, from, to }] }
+   - cập nhật sau mỗi lần nạp (đếm lại phiếu của các ngày trong file), để xem lịch đã nạp
+   mà không phải đọc hết phiếu. "Đếm lại" dựng lại từ toàn bộ csTickets. */
+async function recountCoverage(from, to) {
+  const snap = await (from ? FS.collection('csTickets').where('date', '>=', from).where('date', '<=', to) : FS.collection('csTickets')).get();
+  const days = {};
+  snap.forEach((d) => { const x = d.data().date; if (x) days[x] = (days[x] || 0) + 1; });
+  return days;
+}
+
+function TicketPage({ data }) {
+  const { storesMeta, csStoreMap, csCoverage, reloadMeta } = data;
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [drag, setDrag] = useState(false);
+  const days = (csCoverage && csCoverage.days) || {};
+  const imports = (csCoverage && csCoverage.imports) || [];
+
+  const run = async (files) => {
+    const file = [...files].find((x) => /\.(xlsx|xls|csv)$/i.test(x.name));
+    if (!file || busy) return;
+    setBusy(true); setErr(''); setMsg('Đang đọc ' + file.name + '…');
+    try {
+      const list = parseTicketFile(await file.arrayBuffer());
+      const ts = firebase.firestore.FieldValue.serverTimestamp();
+      for (let i = 0; i < list.length; i += 400) {
+        const batch = FS.batch();
+        for (const t of list.slice(i, i + 400)) batch.set(FS.collection('csTickets').doc(t.id), { ...t, importedAt: ts });
+        await batch.commit();
+        setMsg(`Đang lưu ${Math.min(i + 400, list.length)}/${list.length} phiếu…`);
+      }
+      const ds = list.map((t) => t.date).sort();
+      const from = ds[0], to = ds[ds.length - 1];
+      setMsg('Đang cập nhật lịch đã nạp…');
+      const counts = await recountCoverage(from, to);
+      const entry = { at: new Date().toISOString(), file: file.name, n: list.length, from, to };
+      await FS.collection('config').doc('csCoverage').set({
+        days: counts, imports: [entry, ...imports].slice(0, 30), updatedAt: ts,
+      }, { merge: true });
+      setMsg(`✓ Đã nạp ${list.length} phiếu, tạo từ ${dFull(from)} đến ${dFull(to)}. Phiếu đã có thì được cập nhật trạng thái mới nhất, không nhân đôi.`);
+      await reloadMeta();
+    } catch (e) { setErr(e.message || String(e)); setMsg(''); }
+    setBusy(false);
+  };
+  const rebuild = async () => {
+    setBusy(true); setErr(''); setMsg('Đang đếm lại toàn bộ phiếu…');
+    try {
+      const counts = await recountCoverage();
+      // Ghi đè hẳn days (không merge) để ngày đã xoá phiếu không còn sót
+      await FS.collection('config').doc('csCoverage').set({ days: counts, imports, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      setMsg(`✓ Đã đếm lại: ${Object.values(counts).reduce((a, b) => a + b, 0)} phiếu trong ${Object.keys(counts).length} ngày.`);
+      await reloadMeta();
+    } catch (e) { setErr(e.message || String(e)); setMsg(''); }
+    setBusy(false);
+  };
+
+  /* Lịch: từ tháng có phiếu đầu tiên tới tháng này */
+  const dates = Object.keys(days).filter((d) => days[d] > 0).sort();
+  const first = dates[0], last = dates[dates.length - 1];
+  const total = dates.reduce((a, d) => a + days[d], 0);
+  const maxDay = Math.max(1, ...dates.map((d) => days[d]));
+  const missing = [];
+  if (first) for (let k = first; k <= last; k = dAdd(k, 1)) if (!days[k]) missing.push(k);
+  const months = [];
+  if (first) for (let k = monthStart(first); k <= today(); k = dAdd(monthEnd(k), 1)) months.push(k.slice(0, 7));
+  months.reverse();
+
+  const matchInfo = useMemo(() => {
+    const names = [...new Set(Object.keys(csStoreMap || {}))];
+    return names;
+  }, [csStoreMap]);
+  const [unmatched, setUnmatched] = useState(null);
+  const scanUnmatched = async () => {
+    setBusy(true); setErr('');
+    try {
+      const all = LOCAL ? await loadTickets(first || '2020-01-01', today()) : (await FS.collection('csTickets').get()).docs.map((d) => d.data());
+      const names = {};
+      for (const t of all) if (t.storeName) names[t.storeName] = t.region;
+      setUnmatched(Object.entries(names).filter(([n, rg]) => !(csStoreMap || {})[n] && !matchCsStore(n, rg, storesMeta || [])).map(([n]) => n).sort());
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const saveMap = async (name, id) => {
+    const next = { ...(csStoreMap || {}), [name]: id };
+    await FS.collection('config').doc('csStoreMap').set({ map: next, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    setUnmatched((u) => (u || []).filter((x) => x !== name));
+    await reloadMeta();
+  };
+
+  return (
+    <>
+      <div className="stats">
+        <Stat hero label="Đã nạp tới ngày" icon={<Ic.cal size={14} />} value={last ? dFull(last) : '—'}
+          sub={imports[0] ? 'lần nạp gần nhất ' + stamp(imports[0].at) : 'chưa nạp lần nào'} />
+        <Stat label="Tổng phiếu đã nạp" icon={<Ic.chat size={14} />} value={money(total)} sub={first ? 'từ ' + dFull(first) : null} />
+        <Stat label="Số ngày có phiếu" icon={<Ic.table size={14} />} value={money(dates.length)}
+          sub={missing.length ? <span className="dn">thiếu {missing.length} ngày ở giữa</span> : first ? <span className="up">liền mạch, không hụt ngày</span> : null} />
+        <Stat label="Phiếu / ngày (TB)" icon={<Ic.gauge size={14} />} value={dates.length ? (total / dates.length).toFixed(1).replace('.', ',') : '—'} sub="trên các ngày đã nạp" />
       </div>
 
-      <Section n="5" title="Danh sách phiếu" sub="Toàn bộ phiếu trong lát cắt đang lọc — tìm theo chủ đề, mã đơn, cửa hàng, chuyên viên" />
       <div className="card">
-        <div className="flt">
-          <input className="inp grow" placeholder="Tìm chủ đề, mã đơn, chi nhánh, ID phiếu…" value={q} onChange={(e) => { setQ(e.target.value); setLimit(40); }} />
-          <span className="hint">{shown.length} phiếu</span>
-          <button className="btn sm" onClick={exportCsv} disabled={!shown.length}><Ic.down size={14} /> Xuất CSV</button>
+        <div className="card-h">
+          <div><h3>Nạp file Export Ticket</h3><p>File xuất từ hệ thống CSKH · nạp lại file mới là cập nhật trạng thái phiếu cũ, không nhân đôi · không lưu SĐT / email / tên khách</p></div>
+          {busy && <span className="tag t-amber" style={{ marginLeft: 'auto' }}>Đang xử lý…</span>}
         </div>
-        <div className="scroll-x">
-          <table className="tb">
-            <thead><tr><th>Tạo lúc</th><th>Phân loại</th><th>Lỗi</th><th>Kết luận</th><th>Chi nhánh</th><th>Kênh</th><th>Trạng thái</th><th className="r">Xử lý</th><th>Chủ đề</th></tr></thead>
-            <tbody>{shown.slice(0, limit).map((t) => { const v = CS_VERDICTS.find((x) => x.k === csVerdict(t)); return (
-              <tr key={t.id}>
-                <td style={{ whiteSpace: 'nowrap', color: 'var(--txt-3)' }}>{dShort(t.date)} {t.createdAt.slice(11, 16)}</td>
-                <td>{t.ticketType || '—'}</td>
-                <td>{t.type1 ? <><b style={{ fontWeight: 600 }}>{t.type1}</b>{t.type2 && <small style={{ display: 'block', color: 'var(--txt-3)' }}>{t.type2}</small>}</> : '—'}</td>
-                <td><i className="dot" style={{ background: v.c }} /> <small>{v.l}</small></td>
-                <td>{storeLabel(t) || '—'}</td><td style={{ color: 'var(--txt-3)' }}>{t.channel || t.source || '—'}</td>
-                <td>{statusTag(t.status)}</td>
-                <td className="r" style={{ whiteSpace: 'nowrap' }}>{t.resolvedAt ? csHrs((csMs(t.resolvedAt) - csMs(t.createdAt)) / 3.6e6) : '—'}</td>
-                <td style={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.subject || ''}>{t.subject || '—'}</td>
-              </tr>); })}</tbody>
-          </table>
-          {shown.length > limit && <div style={{ padding: 14, textAlign: 'center' }}><button className="btn" onClick={() => setLimit((l) => l + 80)}>Xem thêm ({shown.length - limit} phiếu)</button></div>}
+        <div className="card-b">
+          {LOCAL ? <div className="banner">Chế độ xem trước local không ghi được — mở bản thật (đã đăng nhập) để nạp.</div> : (
+            <label className={cls('upl-box', drag && 'drag')} style={busy ? { opacity: 0.6, pointerEvents: 'none' } : null}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setDrag(false); run(e.dataTransfer.files); }}>
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files; e.target.value = ''; run(f); }} />
+              <Ic.up size={22} style={{ margin: '0 auto 8px', color: 'var(--brand)' }} />
+              <div style={{ fontWeight: 600 }}>Bấm để chọn hoặc kéo thả file Export Ticket (.xlsx)</div>
+              <div className="hint">Cần các cột: ID phiếu ghi, Thời điểm tạo, Phân loại Ticket, Type Level 1/2, Cửa hàng, Khu vực… · phân tích xem ở mục Customer Service trong Summary và Weekly</div>
+            </label>
+          )}
+          {msg && <div className="imp-log">{msg}</div>}
+          {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
         </div>
       </div>
-      </>
-      )}
+
+      <div className="card">
+        <div className="card-h">
+          <div><h3>Lịch đã nạp</h3><p>Mỗi ô là một ngày (theo ngày tạo phiếu) · số trong ô là số phiếu · ô đỏ là ngày nằm giữa khoảng đã nạp mà chưa có phiếu</p></div>
+          <div className="sp">
+            {!LOCAL && <button className="btn sm" disabled={busy} onClick={rebuild}>Đếm lại</button>}
+          </div>
+        </div>
+        {!months.length ? <div className="empty">Chưa nạp phiếu nào.</div> : (
+          <div className="tkc-months">
+            {months.map((ym) => {
+              const start = ym + '-01', end = monthEnd(start);
+              const lead = (new Date(start + 'T00:00:00').getDay() + 6) % 7;
+              const cells = [];
+              for (let i = 0; i < lead; i++) cells.push(null);
+              for (let k = start; k <= end; k = dAdd(k, 1)) cells.push(k);
+              const mTotal = cells.filter(Boolean).reduce((a, k) => a + (days[k] || 0), 0);
+              return (
+                <div className="tkc-m" key={ym}>
+                  <div className="tkc-h"><b>Tháng {+ym.slice(5)}/{ym.slice(0, 4)}</b><span>{mTotal ? money(mTotal) + ' phiếu' : 'chưa có'}</span></div>
+                  <div className="tkc-g">
+                    {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((w) => <i key={w}>{w}</i>)}
+                    {cells.map((k, i) => {
+                      if (!k) return <span key={'e' + i} />;
+                      const n = days[k] || 0;
+                      const gap = !n && first && k > first && k < last;
+                      const future = k > today();
+                      return (
+                        <span key={k} className={cls('tkc-d', n && 'on', gap && 'gap', future && 'fut')}
+                          style={n ? { '--a': (0.18 + 0.82 * n / maxDay).toFixed(2) } : null}
+                          title={dFull(k) + (n ? ' · ' + n + ' phiếu' : gap ? ' · chưa nạp' : '')}>
+                          <em>{+k.slice(8)}</em>{n ? <b>{n}</b> : null}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {missing.length > 0 && (
+          <div className="flt"><span className="hint"><b className="dn">Chưa có phiếu:</b> {missing.slice(0, 40).map(dShort).join(', ')}{missing.length > 40 ? ' …' : ''}</span></div>
+        )}
+      </div>
+
+      <div className="dash">
+        <div className="c6">
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-h"><div><h3>Lịch sử nạp</h3><p>30 lần gần nhất</p></div></div>
+            {!imports.length ? <div className="empty">Chưa có lần nạp nào được ghi lại.</div> : (
+              <div className="scroll-x"><table className="tb">
+                <thead><tr><th>Lúc nạp</th><th>File</th><th className="r">Phiếu</th><th>Khoảng ngày</th></tr></thead>
+                <tbody>{imports.map((x, i) => (
+                  <tr key={i}><td style={{ whiteSpace: 'nowrap' }}>{stamp(x.at)}</td><td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.file}</td>
+                    <td className="r">{money(x.n)}</td><td style={{ whiteSpace: 'nowrap' }}>{dShort(x.from)} – {dShort(x.to)}</td></tr>
+                ))}</tbody></table></div>
+            )}
+          </div>
+        </div>
+        <div className="c6">
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-h">
+              <div><h3>Ghép cửa hàng</h3><p>Tên cửa hàng trong phiếu được tự ghép với danh mục chi nhánh; quán nào không ghép được thì chọn tay ở đây</p></div>
+              <div className="sp"><button className="btn sm" disabled={busy || !first} onClick={scanUnmatched}>Tìm quán chưa ghép</button></div>
+            </div>
+            {unmatched == null ? <div className="empty">{matchInfo.length ? matchInfo.length + ' quán đang ghép tay. ' : ''}Bấm "Tìm quán chưa ghép" để kiểm tra.</div>
+              : !unmatched.length ? <div className="empty">Tất cả cửa hàng trong phiếu đều đã ghép được.</div> : (
+                <div className="card-b" style={{ display: 'grid', gap: 10 }}>
+                  {unmatched.map((n) => (
+                    <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <b style={{ fontSize: 13, minWidth: 200 }}>{n}</b>
+                      <select className="inp" style={{ width: 'auto', flex: 1 }} value="" disabled={LOCAL} onChange={(e) => e.target.value && saveMap(n, e.target.value)}>
+                        <option value="">— chọn chi nhánh —</option>
+                        {[...(storesMeta || [])].sort((a, b) => storeShort(a.storeName).localeCompare(storeShort(b.storeName), 'vi'))
+                          .map((s) => <option key={s.id} value={s.id}>{storeShort(s.storeName)}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+          </div>
+        </div>
+      </div>
     </>
   );
 }
@@ -4992,8 +5173,8 @@ const PAGES = [
   { k: 'overview', l: 'Summary', s: 'Summary', ic: Ic.gauge, g: 'Bán hàng', usesRange: true, usesYear: true, t: ['Summary', ''], C: OverviewPage },
   { k: 'weekly', l: 'Weekly Report', s: 'Weekly', ic: Ic.cal, g: 'Bán hàng', usesWeek: true, t: ['Weekly Report', ''], C: WeeklyPage },
   { k: 'stores', l: 'Cửa hàng', s: 'Cửa hàng', ic: Ic.store, g: 'Bán hàng', usesRange: true, t: ['Bảng cửa hàng', 'Xếp hạng toàn bộ cửa hàng theo khoảng ngày đang chọn'], C: StoresPage },
-  { k: 'cs', l: 'Customer Service', s: 'CS', ic: Ic.chat, g: 'Khách hàng', usesRange: true, t: ['Customer Service', 'Khiếu nại, phân loại lỗi, SLA và xử lý — từ file Export Ticket'], C: CSPage },
   { k: 'data', l: 'Data', s: 'Data', ic: Ic.table, g: 'Dữ liệu', usesRange: true, t: ['Data', 'Đã nạp tới đâu, ngày nào thiếu — và bảng từng dòng để đối soát'], C: DataPage },
+  { k: 'tickets', l: 'Ticket Complain', s: 'Ticket', ic: Ic.chat, g: 'Dữ liệu', t: ['Ticket Complain', 'Nạp phiếu CSKH và xem đã nạp những ngày nào — phân tích ở mục Customer Service của Summary / Weekly'], C: TicketPage },
   { k: 'storeMeta', l: 'Chi nhánh', s: 'Chi nhánh', ic: Ic.pin, g: 'Quản trị', t: ['Chi nhánh', 'Gán Region / City / AM cho từng cửa hàng'], C: StoreMetaPage },
   { k: 'targetPage', l: 'Target', s: 'Target', ic: Ic.up, g: 'Quản trị', t: ['Target', 'Nạp target doanh thu theo tháng × cửa hàng từ Excel'], C: TargetPage },
 ];
@@ -5219,6 +5400,7 @@ function App() {
   const [storesMeta, setStoresMeta] = useState([]);
   const [targets, setTargets] = useState([]);
   const [lists, setLists] = useState(null); // config/lists: { am: [...], city: [...] }
+  const [csCfg, setCsCfg] = useState({ map: {}, coverage: null }); // config/csStoreMap, config/csCoverage
   const [metaBusy, setMetaBusy] = useState(false);
   const [yearData, setYearData] = useState({ year: null, days: null, busy: false });
 
@@ -5270,6 +5452,8 @@ function App() {
       const [s, t, c] = await Promise.all([loadCollection('stores'), loadCollection('targets'), loadCollection('config').catch(() => [])]);
       setStoresMeta(s); setTargets(t);
       setLists(c.find((x) => x.id === 'lists') || null);
+      const sm = c.find((x) => x.id === 'csStoreMap'), cv = c.find((x) => x.id === 'csCoverage');
+      setCsCfg({ map: (sm && sm.map) || {}, coverage: cv || null });
     } catch (e) { setErr(e.message); }
   }, []);
   useEffect(() => { if (user) loadMeta(); }, [user, loadMeta]);
@@ -5394,7 +5578,7 @@ function App() {
         <div key={shown + (data ? data.range.from + data.range.to : '')} className={cls('page', leaving && 'leaving')}>
           {err ? <div className="banner"><b>Không tải được dữ liệu:</b>&nbsp;{err}</div>
             : (cur.usesMonth || cur.usesRange || cur.usesWeek) && !data ? <div className="empty">Đang tải số liệu…</div>
-              : <Body data={{ ...data, storesMeta, targets, saveStores, saveTargets, metaBusy, lists, reload: load,
+              : <Body data={{ ...data, storesMeta, targets, saveStores, saveTargets, metaBusy, lists, reload: load, reloadMeta: loadMeta, goPage: setPage, csStoreMap: csCfg.map, csCoverage: csCfg.coverage,
                 yearDays: yearData.year === yearOf ? stripHidden(yearData.days, hiddenIds) : null, yearBusy: yearData.busy }} />}
         </div>
       </div>
