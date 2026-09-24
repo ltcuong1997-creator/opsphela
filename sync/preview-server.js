@@ -80,6 +80,14 @@ http
         if (!DATE_RE.test(from) || !DATE_RE.test(to)) return send(res, 400, '{"error":"from/to phải dạng YYYY-MM-DD"}');
         return send(res, 200, JSON.stringify(await itemStores(from, to)));
       }
+      if (url.pathname === '/api/cstickets') {
+        const from = url.searchParams.get('from');
+        const to = url.searchParams.get('to');
+        if (!DATE_RE.test(from) || !DATE_RE.test(to)) return send(res, 400, '{"error":"from/to phải dạng YYYY-MM-DD"}');
+        const snap = await db.collection('csTickets').where('date', '>=', from).where('date', '<=', to).get();
+        return send(res, 200, JSON.stringify(snap.docs.map((d) => { const { importedAt, ...x } = d.data(); return x; })));
+      }
+      if (url.pathname === '/api/config') return send(res, 200, JSON.stringify(await readAll('config')));
       if (url.pathname === '/api/stores') return send(res, 200, JSON.stringify(await readAll('stores')));
       if (url.pathname === '/api/targets') return send(res, 200, JSON.stringify(await readAll('targets')));
       const file = path.normalize(path.join(PUBLIC_DIR, url.pathname === '/' ? 'index.html' : url.pathname));

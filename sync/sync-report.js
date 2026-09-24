@@ -56,7 +56,7 @@ async function main() {
     console.log(`Cần nạp ${days.length} ngày: ${days.join(', ') || '(không còn ngày nào)'}`);
     if (!days.length) return;
   }
-  // --skip-complete: bỏ ngày đã có ĐỦ các trường mới (nguồn đơn kèm số hoá đơn, hoa hồng, theo giờ...).
+  // --skip-complete: bỏ ngày đã có ĐỦ các trường mới (nguồn đơn kèm số hoá đơn, hoa hồng...).
   // Khác --skip-done ở chỗ ngày nạp bằng bản script cũ vẫn được nạp lại. Dùng để chạy tiếp
   // một lượt nạp bù dài bị ngắt giữa chừng mà không phải tải lại từ đầu (mỗi ngày ~10 phút).
   if (db && days[0] && process.argv.includes('--skip-complete')) {
@@ -66,7 +66,7 @@ async function main() {
       const doc = probes[i].docs[0];
       if (!doc) return true;
       const x = doc.data();
-      return !(x.commission != null && Object.values(x.sources || {}).some((s) => s.bills != null) && x.hours);
+      return !(x.commission != null && Object.values(x.sources || {}).some((s) => s.bills != null));
     });
     console.log(`Bỏ qua ${before - days.length} ngày đã đủ trường; còn ${days.length} ngày cần nạp.`);
     if (!days.length) return;

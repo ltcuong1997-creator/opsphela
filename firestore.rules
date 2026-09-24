@@ -18,9 +18,31 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null;
     }
-    // Phần còn lại (d05Daily, d05Days, syncState...): chỉ đọc, không ai ghi từ
-    // trình duyệt - dữ liệu chỉ được ghi bởi script RPA dùng Admin SDK (service
-    // account), luôn bỏ qua rules này.
+    // Nút "Nạp bù bằng file D05" ở tab Data ghi đúng các collection mà script đồng bộ
+    // ghi (cùng lõi public/d05-core.js), nên người đã đăng nhập được ghi 4 collection này.
+    match /d05Daily/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    match /d05Days/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    match /d05ItemStores/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    match /syncState/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    // Phiếu CSKH nạp tay từ file Export Ticket (trang Customer Service)
+    match /csTickets/{ticketId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    // Phần còn lại (histDays, histMonths...): chỉ đọc, không ai ghi từ trình duyệt -
+    // chỉ script dùng Admin SDK (service account) ghi, luôn bỏ qua rules này.
     match /{document=**} {
       allow read: if request.auth != null;
       allow write: if false;
