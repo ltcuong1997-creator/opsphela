@@ -47,6 +47,8 @@ function buildDay(h, fabiDocs) {
     }
     for (const [hr, v] of Object.entries(st.hours || {})) day.hours[hr] = (day.hours[hr] || 0) + v;
     day.stores[id] = { name: st.name, revenue: st.revenue, bills: st.tc, quantity: fst.quantity || 0, commission: fst.commission || 0, et, dlv };
+    // Excel có doanh thu theo giờ từng cửa hàng (không có TC theo giờ)
+    if (st.hours && Object.keys(st.hours).length) day.stores[id].hours = st.hours;
   }
   for (const raw of fabiList) {
     if (day.stores[raw.storeId]) continue;

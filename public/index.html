@@ -2391,6 +2391,274 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
   );
 }
 
+/* Gộp theo GIỜ và theo THỨ cho một lát cắt cửa hàng (keep). Giờ đọc từ d05Days.stores[id]
+   .hours (doanh thu trước VAT) / .hourBills (TC) - ngày nạp trước khi có giờ thì không có,
+   nên mọi trung bình theo giờ chia cho số ngày CÓ số giờ (hDays / hbDays), không chia cả kỳ.
+   Ngày từ Excel (tới 2025) có doanh thu theo giờ nhưng không có TC theo giờ. */
+const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]; // T2 -> CN
+const DAYPARTS = [
+  { k: 'sang', l: 'Sáng', r: 'trước 11h', has: (h) => h < 11 },
+  { k: 'trua', l: 'Trưa', r: '11h – 14h', has: (h) => h >= 11 && h < 14 },
+  { k: 'chieu', l: 'Chiều', r: '14h – 17h', has: (h) => h >= 14 && h < 17 },
+  { k: 'toi', l: 'Tối', r: 'từ 17h', has: (h) => h >= 17 },
+];
+function timeAgg(sum, keep) {
+  const hr = {}, cell = {}, wd = {}, cellDays = {};
+  let hDays = 0, hbDays = 0;
+  for (const [date, d] of Object.entries((sum && sum.days) || {})) {
+    const w = new Date(date + 'T00:00:00').getDay();
+    const W = (wd[w] ||= { revenue: 0, bills: 0, storeDays: 0, n: 0 });
+    let dayRev = 0, anyH = false, anyHb = false;
+    for (const [id, st] of Object.entries(d.stores || {})) {
+      if (keep && !keep(id)) continue;
+      dayRev += st.revenue || 0; W.revenue += st.revenue || 0; W.bills += st.bills || 0;
+      if (st.revenue > 0) W.storeDays++;
+      for (const [h, v] of Object.entries(st.hours || {})) {
+        anyH = true;
+        (hr[h] ||= { revenue: 0, bills: 0 }).revenue += v || 0;
+        const c = ((cell[w] ||= {})[h] ||= { revenue: 0 });
+        c.revenue += v || 0;
+      }
+      for (const [h, v] of Object.entries(st.hourBills || {})) { anyHb = true; (hr[h] ||= { revenue: 0, bills: 0 }).bills += v || 0; }
+    }
+    if (dayRev > 0) W.n++;
+    if (anyH) { hDays++; cellDays[w] = (cellDays[w] || 0) + 1; }
+    if (anyHb) hbDays++;
+  }
+  const hours = Object.keys(hr).sort();
+  return {
+    hDays, hbDays, hours, cellDays,
+    hrAvg: (h) => (hDays && hr[h] ? hr[h].revenue / hDays : 0),
+    tcAvg: (h) => (hbDays && hr[h] ? hr[h].bills / hbDays : 0),
+    aovH: (h) => (hr[h] && hr[h].bills ? hr[h].revenue / hr[h].bills : null),
+    cellAvg: (w, h) => (cellDays[w] && cell[w] && cell[w][h] ? cell[w][h].revenue / cellDays[w] : 0),
+    wdRow: (w) => {
+      const x = wd[w] || { revenue: 0, bills: 0, storeDays: 0, n: 0 };
+      return { ...x, avg: x.n ? x.revenue / x.n : 0, ads: x.storeDays ? x.revenue / x.storeDays : 0, aov: aovOf(x.revenue, x.bills), tc: x.n ? x.bills / x.n : 0 };
+    },
+    part: (p) => hours.filter((h) => p.has(+h)).reduce((a, h) => a + (hDays && hr[h] ? hr[h].revenue / hDays : 0), 0),
+  };
+}
+
+/* Cột (kỳ này) + đường gạch xám (cùng kỳ tháng trước) trên CÙNG một trục. */
+function cmpColOption(cats, cur, prev, { fmt = unit, valueName = 'Kỳ này', prevName = 'Cùng kỳ tháng trước', tip } = {}) {
+  return {
+    ...ANIM,
+    grid: { left: 52, right: 12, top: 30, bottom: 26 },
+    tooltip: {
+      ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
+      formatter: (ps) => {
+        const i = ps[0].dataIndex, a = cur[i], b = prev[i], d = a && b ? pctDiff(a, b) : null;
+        return `<b>${cats[i]}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value ? money(p.value) : '—'}</b>`).join('<br/>')
+          + (d == null ? '' : `<br/>Chênh lệch <b>${(d >= 0 ? '+' : '') + pct1(d)}</b>`) + (tip ? tip(i) : '');
+      },
+    },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 11, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: { type: 'category', data: cats, ...AXIS_STYLE, splitLine: { show: false } },
+    yAxis: { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: fmt } },
+    series: [
+      { name: valueName, type: 'bar', barMaxWidth: 22, itemStyle: { color: BRAND_HEX, borderRadius: [4, 4, 0, 0] },
+        emphasis: { itemStyle: { color: '#8C6220' } }, data: cur.map((v) => (v ? Math.round(v) : null)) },
+      { name: prevName, type: 'line', smooth: 0.3, symbol: 'circle', symbolSize: 8, showSymbol: false, connectNulls: true,
+        lineStyle: { width: 2, type: 'dashed', color: '#A9A49C' }, itemStyle: { color: '#A9A49C', borderColor: '#fff', borderWidth: 2 },
+        data: prev.map((v) => (v ? Math.round(v) : null)) },
+    ],
+  };
+}
+
+/* Mục "Theo giờ & thứ trong tuần" - tôn trọng bộ lọc đang bật (keep của lát cắt),
+   luôn so với cùng kỳ tháng trước. */
+function TimeSection({ cur, mom, keep, momRange, geoFilter }) {
+  const now = useMemo(() => timeAgg(cur, keep), [cur, keep]);
+  const before = useMemo(() => timeAgg(mom, keep), [mom, keep]);
+  const nDays = Object.values(cur.days || {}).length;
+  const hLabel = (h) => +h + 'h';
+  const money2 = (v) => money(v) + ' đ';
+  const delta = (g) => <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td>;
+  const cmpTxt = `so với ${dFull(momRange.from)} – ${dFull(momRange.to)}`;
+
+  /* ---- Theo giờ ---- */
+  const hours = useMemo(() => {
+    const all = [...new Set([...now.hours, ...before.hours])].sort();
+    return all.filter((h) => now.hrAvg(h) + before.hrAvg(h) > 0);
+  }, [now, before]);
+  const hasH = now.hDays > 0;
+  const dayTotal = hours.reduce((a, h) => a + now.hrAvg(h), 0);
+  const peak = hasH ? hours.reduce((b, h) => (now.hrAvg(h) > now.hrAvg(b) ? h : b), hours[0]) : null;
+  /* Khung 3 giờ liền nhau mạnh nhất */
+  let best3 = null;
+  if (hasH) for (let i = 0; i + 2 < hours.length; i++) {
+    if (+hours[i + 2] - +hours[i] !== 2) continue;
+    const v = now.hrAvg(hours[i]) + now.hrAvg(hours[i + 1]) + now.hrAvg(hours[i + 2]);
+    if (!best3 || v > best3.v) best3 = { from: +hours[i], v };
+  }
+
+  const hrOption = useMemo(() => cmpColOption(hours.map(hLabel), hours.map((h) => now.hrAvg(h)), hours.map((h) => before.hrAvg(h)), {
+    valueName: 'Doanh thu TB/ngày', tip: (i) => {
+      const h = hours[i], a = now.aovH(h);
+      return `<br/><span style="color:${INK.mute}">${pct1(dayTotal ? now.hrAvg(h) / dayTotal * 100 : 0)} doanh thu ngày${a ? ' · AOV ' + money(a) + ' đ' : ''}</span>`;
+    },
+  }), [hours, now, before, dayTotal]);
+  const tcOption = useMemo(() => cmpColOption(hours.map(hLabel), hours.map((h) => now.tcAvg(h)), hours.map((h) => before.tcAvg(h)),
+    { valueName: 'TC TB/ngày', fmt: (v) => money(v) }), [hours, now, before]);
+
+  /* Heatmap thứ × giờ: doanh thu TB mỗi ngày của ô đó - một màu nâu từ nhạt tới đậm */
+  const heat = useMemo(() => {
+    const data = [];
+    let max = 0;
+    WD_ORDER.forEach((w, yi) => hours.forEach((h, xi) => {
+      const v = Math.round(now.cellAvg(w, h));
+      if (v > max) max = v;
+      data.push([xi, yi, v || null]);
+    }));
+    return { data, max };
+  }, [hours, now]);
+  const heatOption = useMemo(() => ({
+    animationDuration: 700,
+    grid: { left: 38, right: 10, top: 6, bottom: 52 },
+    tooltip: {
+      ...TIP, trigger: 'item',
+      formatter: (p) => {
+        const w = WD_ORDER[p.value[1]], h = hours[p.value[0]];
+        const dayOfWd = hours.reduce((a, x) => a + now.cellAvg(w, x), 0);
+        return `<b>${WD[w]} · ${hLabel(h)} – ${+h + 1}h</b><br/>Doanh thu TB <b>${p.value[2] ? money(p.value[2]) + ' đ' : '—'}</b>`
+          + (p.value[2] && dayOfWd ? `<br/><span style="color:${INK.mute}">${pct1(p.value[2] / dayOfWd * 100)} doanh thu ${WD[w]} · ${now.cellDays[w] || 0} ngày</span>` : '');
+      },
+    },
+    xAxis: { type: 'category', data: hours.map(hLabel), ...AXIS_STYLE, axisLine: { show: false }, splitArea: { show: false } },
+    yAxis: { type: 'category', data: WD_ORDER.map((w) => WD[w]), inverse: true, ...AXIS_STYLE, axisLine: { show: false },
+      axisLabel: { ...AXIS_STYLE.axisLabel, color: INK.txt, fontWeight: 600 } },
+    visualMap: {
+      min: 0, max: heat.max || 1, calculable: false, orient: 'horizontal', left: 'center', bottom: 0, itemWidth: 10, itemHeight: 180,
+      text: ['cao', 'thấp'], textStyle: { color: INK.mute, fontSize: 10.5, fontFamily: FONT },
+      inRange: { color: ['#FBF6EC', '#F1DDB3', '#DDAE5A', '#B07D2B', '#6E4A14'] },
+    },
+    series: [{
+      type: 'heatmap', data: heat.data,
+      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 5 },
+      emphasis: { itemStyle: { borderColor: INK.txt, borderWidth: 1.5 } },
+    }],
+  }), [heat, hours, now]);
+
+  /* Cơ cấu buổi trong ngày */
+  const partRows = DAYPARTS.map((p) => ({ name: p.l + ' · ' + p.r, a: now.part(p), b: before.part(p) }));
+  const partTotal = partRows.reduce((s, r) => s + r.a, 0);
+  const partTotalB = partRows.reduce((s, r) => s + r.b, 0);
+  const partOption = cmpBarOption(partRows, { value: (r) => r.a, base: (r) => r.b || 0, valueName: 'Kỳ này', baseName: 'Cùng kỳ tháng trước', labelWidth: 108 });
+
+  /* ---- Theo thứ ---- */
+  const wdNow = WD_ORDER.map((w) => now.wdRow(w)), wdPrev = WD_ORDER.map((w) => before.wdRow(w));
+  const wdCats = WD_ORDER.map((w) => WD[w]);
+  const wdValid = wdNow.map((r, i) => ({ ...r, w: WD_ORDER[i] })).filter((r) => r.n);
+  const bestWd = wdValid.length ? wdValid.reduce((a, b) => (b.ads > a.ads ? b : a)) : null;
+  const worstWd = wdValid.length ? wdValid.reduce((a, b) => (b.ads < a.ads ? b : a)) : null;
+  const wdAdsOption = useMemo(() => cmpColOption(wdCats, wdNow.map((r) => r.ads), wdPrev.map((r) => r.ads), {
+    valueName: 'ADS', tip: (i) => `<br/><span style="color:${INK.mute}">${wdNow[i].n} ngày ${wdCats[i]} trong kỳ</span>`,
+  }), [now, before]);
+  const wdAovOption = useMemo(() => cmpColOption(wdCats, wdNow.map((r) => r.aov), wdPrev.map((r) => r.aov), { valueName: 'AOV' }), [now, before]);
+
+  const noHour = 'Kỳ này chưa có số theo giờ. Fabi chỉ bắt đầu lưu giờ từ lần đồng bộ sau bản cập nhật; các ngày cũ cần nạp lại để có giờ.';
+  const hTag = hasH ? `có giờ ${now.hDays}/${nDays} ngày` : null;
+
+  return (
+    <>
+      <div className="kpi-row">
+        <Kpi hero label="Giờ cao điểm" value={peak ? `${hLabel(peak)} – ${+peak + 1}h` : '—'}
+          hint={peak ? `TB ${unit(now.hrAvg(peak))}/ngày · ${pct1(dayTotal ? now.hrAvg(peak) / dayTotal * 100 : 0)} doanh thu ngày` : 'chưa có số theo giờ'} />
+        <Kpi label="Khung 3 giờ vàng" value={best3 ? `${best3.from}h – ${best3.from + 3}h` : '—'}
+          hint={best3 ? `gom ${pct1(dayTotal ? best3.v / dayTotal * 100 : 0)} doanh thu ngày` : 'chưa có số theo giờ'} />
+        <Kpi tint="blue" label="Thứ bán tốt nhất · ADS" value={bestWd ? WD[bestWd.w] : '—'}
+          hint={bestWd ? `ADS ${unit(bestWd.ads)} · TB ${unit(bestWd.avg)}/ngày` : null} />
+        <Kpi label="Thứ bán yếu nhất · ADS" value={worstWd ? WD[worstWd.w] : '—'}
+          hint={worstWd && bestWd ? `ADS ${unit(worstWd.ads)} · thấp hơn ${WD[bestWd.w]} ${pct1(Math.abs(pctDiff(worstWd.ads, bestWd.ads) || 0))}` : null} />
+      </div>
+
+      <div className="dash">
+        <div className="c8">
+          <ChartCard title="Bản đồ nhiệt thứ × giờ" sub="Doanh thu TB mỗi ngày của từng ô · ô càng đậm càng đông khách"
+            tag={hTag} height={320} option={hasH ? heatOption : null} empty={!hasH ? noHour : null}
+            table={(
+              <table>
+                <thead><tr><th>Thứ</th>{hours.map((h) => <th key={h} className="r">{hLabel(h)}</th>)}</tr></thead>
+                <tbody>{WD_ORDER.map((w) => (
+                  <tr key={w}><td>{WD[w]}</td>{hours.map((h) => <td key={h} className="r">{now.cellAvg(w, h) ? unit(now.cellAvg(w, h)) : '—'}</td>)}</tr>
+                ))}</tbody>
+              </table>
+            )} />
+        </div>
+        <div className="c4">
+          <ChartCard title="Doanh thu theo buổi" sub={`TB mỗi ngày · ${cmpTxt}`} height={320}
+            option={hasH ? partOption : null} empty={!hasH ? noHour : null}
+            table={(
+              <table>
+                <thead><tr><th>Buổi</th><th className="r">Kỳ này</th><th className="r">Tỉ trọng</th><th className="r">Cùng kỳ</th><th className="r">Tỉ trọng</th><th className="r">Chênh lệch</th></tr></thead>
+                <tbody>{partRows.map((r) => (
+                  <tr key={r.name}><td>{r.name}</td><td className="r">{money2(r.a)}</td><td className="r">{pct1(partTotal ? r.a / partTotal * 100 : 0)}</td>
+                    <td className="r">{r.b ? money2(r.b) : '—'}</td><td className="r">{partTotalB ? pct1(r.b / partTotalB * 100) : '—'}</td>{delta(pctDiff(r.a, r.b))}</tr>
+                ))}</tbody>
+              </table>
+            )} />
+        </div>
+
+        <div className="c6">
+          <ChartCard title="Doanh thu TB theo giờ" sub={`Cột là kỳ này, đường gạch là cùng kỳ tháng trước · ${hasH ? 'chia cho ' + now.hDays + ' ngày có số giờ' : ''}`}
+            tag={hTag} height={280} option={hasH ? hrOption : null} empty={!hasH ? noHour : null}
+            table={(
+              <table>
+                <thead><tr><th>Giờ</th><th className="r">Doanh thu TB</th><th className="r">Tỉ trọng</th><th className="r">Cùng kỳ</th><th className="r">Chênh lệch</th><th className="r">AOV</th></tr></thead>
+                <tbody>{hours.map((h) => (
+                  <tr key={h}><td>{hLabel(h)} – {+h + 1}h</td><td className="r">{money2(now.hrAvg(h))}</td>
+                    <td className="r">{pct1(dayTotal ? now.hrAvg(h) / dayTotal * 100 : 0)}</td>
+                    <td className="r">{before.hrAvg(h) ? money2(before.hrAvg(h)) : '—'}</td>{delta(pctDiff(now.hrAvg(h), before.hrAvg(h)))}
+                    <td className="r">{now.aovH(h) ? money2(now.aovH(h)) : '—'}</td></tr>
+                ))}</tbody>
+              </table>
+            )} />
+        </div>
+        <div className="c6">
+          <ChartCard title="TC TB theo giờ" sub="Số hoá đơn TB mỗi ngày trong từng giờ · kỳ này vs cùng kỳ tháng trước"
+            height={280} option={now.hbDays ? tcOption : null} empty={!now.hbDays ? noHour : null}
+            table={(
+              <table>
+                <thead><tr><th>Giờ</th><th className="r">TC TB</th><th className="r">Cùng kỳ</th><th className="r">Chênh lệch</th></tr></thead>
+                <tbody>{hours.map((h) => (
+                  <tr key={h}><td>{hLabel(h)} – {+h + 1}h</td><td className="r">{now.tcAvg(h).toFixed(1).replace('.', ',')}</td>
+                    <td className="r">{before.tcAvg(h) ? before.tcAvg(h).toFixed(1).replace('.', ',') : '—'}</td>{delta(pctDiff(now.tcAvg(h), before.tcAvg(h)))}</tr>
+                ))}</tbody>
+              </table>
+            )} />
+        </div>
+
+        <div className="c6">
+          <ChartCard title="ADS theo thứ trong tuần" sub={`Doanh thu TB mỗi chi nhánh mỗi ngày, gom theo thứ · ${cmpTxt}`} height={280} option={wdAdsOption}
+            table={(
+              <table>
+                <thead><tr><th>Thứ</th><th className="r">Số ngày</th><th className="r">Doanh thu TB/ngày</th><th className="r">ADS</th><th className="r">Cùng kỳ</th><th className="r">Chênh lệch</th><th className="r">TC TB/ngày</th></tr></thead>
+                <tbody>{wdNow.map((r, i) => (
+                  <tr key={i}><td>{wdCats[i]}</td><td className="r">{r.n}</td><td className="r">{money2(r.avg)}</td><td className="r">{money2(r.ads)}</td>
+                    <td className="r">{wdPrev[i].ads ? money2(wdPrev[i].ads) : '—'}</td>{delta(pctDiff(r.ads, wdPrev[i].ads))}
+                    <td className="r">{money(r.tc)}</td></tr>
+                ))}</tbody>
+              </table>
+            )} />
+        </div>
+        <div className="c6">
+          <ChartCard title="AOV theo thứ trong tuần" sub="Giá trị TB mỗi hoá đơn, gom theo thứ · kỳ này vs cùng kỳ tháng trước" height={280} option={wdAovOption}
+            table={(
+              <table>
+                <thead><tr><th>Thứ</th><th className="r">AOV</th><th className="r">Cùng kỳ</th><th className="r">Chênh lệch</th></tr></thead>
+                <tbody>{wdNow.map((r, i) => (
+                  <tr key={i}><td>{wdCats[i]}</td><td className="r">{r.aov ? money2(r.aov) : '—'}</td>
+                    <td className="r">{wdPrev[i].aov ? money2(wdPrev[i].aov) : '—'}</td>{delta(pctDiff(r.aov, wdPrev[i].aov))}</tr>
+                ))}</tbody>
+              </table>
+            )} />
+        </div>
+      </div>
+    </>
+  );
+}
+
 function OverviewPage({ data }) {
   const { cur, prev, range, storesMeta, targets } = data;
   const [filter, setFilter] = useState({});
@@ -3227,6 +3495,11 @@ function OverviewPage({ data }) {
       <Section n="8" title="Báo cáo chi nhánh" sub="Chọn một chi nhánh để xem mọi chỉ số của chi nhánh đó — luôn so với cùng kỳ tháng trước" />
       <StoreSection cur={cur} mom={data.mom} meta={meta} range={range} momRange={data.momRange || range}
         targetByStore={targetByStore} yearDays={data.yearDays} focus={filter.store} />
+
+      {/* ============ 9. THEO GIỜ & THỨ ============ */}
+      <Section n="9" title="Theo giờ & thứ trong tuần" nav="Giờ & thứ"
+        sub="Khách đến giờ nào, thứ nào bán mạnh — theo bộ lọc đang bật, so với cùng kỳ tháng trước" />
+      <TimeSection cur={cur} mom={data.mom} keep={slice.keep} momRange={data.momRange || range} geoFilter={geoFilter} />
     </>
   );
 }

@@ -182,6 +182,13 @@ function normalizeDate(v) {
   return iso ? iso[0] : null;
 }
 
+// Giờ bán "07" từ cột Ngày ("02/09/2026 07:31:40" - Fabi xuất dạng chữ); null nếu không có giờ.
+function hourOf(v) {
+  if (v instanceof Date) return isNaN(v) ? null : String(v.getHours()).padStart(2, '0');
+  const m = String(v || '').match(/\s(\d{1,2}):\d{2}/);
+  return m ? m[1].padStart(2, '0') : null;
+}
+
 function keyOf(s) {
   // Firestore doc id / field name an toàn: bỏ dấu, chỉ giữ chữ số và "-".
   return String(s)
@@ -198,6 +205,7 @@ function aggregate(rows, storeIdByName = {}) {
   const docs = {};
   const bills = {};
   const sourceBills = {}; // id -> { sourceKey: Set(billId) } - để tính AOV riêng theo nguồn đơn
+  const hourBills = {}; // id -> { '07': Set(billId) } - TC theo giờ
   for (const row of rows) {
     const date = normalizeDate(row[COL.time]);
     if (!date) continue;
@@ -209,7 +217,7 @@ function aggregate(rows, storeIdByName = {}) {
     const doc = (docs[id] ||= {
       date, storeId, storeName, revenue: 0, quantity: 0, bills: 0,
       discount: 0, serviceFee: 0, tax: 0, shipFee: 0, commission: 0,
-      items: {}, sources: {}, payments: {}, areas: {},
+      items: {}, sources: {}, payments: {}, areas: {}, hours: {},
     });
     const qty = toNumber(row[COL.quantity]);
     const rev = toNumber(row[COL.revenue]);
@@ -223,6 +231,14 @@ function aggregate(rows, storeIdByName = {}) {
     (bills[id] ||= new Set()).add(row[COL.bill]);
     const srcKey = keyOf(row[COL.source] || 'Không rõ');
     (((sourceBills[id] ||= {})[srcKey] ||= new Set())).add(row[COL.bill]);
+    // Doanh thu theo giờ: số gốc Fabi + hoa hồng riêng từng dòng, toNet() quy về trước VAT
+    const hr = hourOf(row[COL.time]);
+    if (hr) {
+      const x = (doc.hours[hr] ||= { revenue: 0, commission: 0, bills: 0 });
+      x.revenue += rev;
+      x.commission += toNumber(row[COL.commission]);
+      (((hourBills[id] ||= {})[hr] ||= new Set())).add(row[COL.bill]);
+    }
 
     const code = row[COL.itemCode] || row[COL.itemName];
     const item = (doc.items[keyOf(code)] ||= {
@@ -245,6 +261,7 @@ function aggregate(rows, storeIdByName = {}) {
     for (const [k, set] of Object.entries(sourceBills[id] || {})) {
       if (docs[id].sources[k]) docs[id].sources[k].bills = set.size;
     }
+    for (const [hr, set] of Object.entries(hourBills[id] || {})) docs[id].hours[hr].bills = set.size;
   }
   return docs;
 }
@@ -267,6 +284,7 @@ function hashOf(doc) {
     doc.date, doc.storeId, doc.storeName, doc.revenue, doc.quantity, doc.bills,
     doc.discount, doc.serviceFee, doc.tax, doc.shipFee, doc.commission,
     sortedEntries(doc.items), sortedEntries(doc.sources), sortedEntries(doc.payments), sortedEntries(doc.areas),
+    sortedEntries(doc.hours || {}),
   ]);
   return crypto.createHash('sha1').update(stable).digest('hex').slice(0, 16);
 }
@@ -406,7 +424,9 @@ function toNet(d) {
     sources[k] = { ...v, revenue: Math.round((v.revenue + share) / VAT) };
   }
   const scale = (map) => Object.fromEntries(Object.entries(map || {}).map(([k, v]) => [k, { ...v, revenue: Math.round(v.revenue * f) }]));
-  return { ...d, revenue: Math.round(net), revenueGross: gross, sources, payments: scale(d.payments), areas: scale(d.areas) };
+  const hours = {};
+  for (const [k, v] of Object.entries(d.hours || {})) hours[k] = { bills: v.bills || 0, revenue: Math.round(((v.revenue || 0) + (v.commission || 0)) / VAT) };
+  return { ...d, revenue: Math.round(net), revenueGross: gross, sources, payments: scale(d.payments), areas: scale(d.areas), hours };
 }
 
 // Số bán từng món theo từng cửa hàng trong 1 ngày -> d05ItemStores/{date}.
@@ -435,7 +455,7 @@ function daySummary(date, dayDocs) {
   const s = {
     date, basis: 'net', revenueGross: 0, noCommission: 0, revenue: 0, bills: 0, quantity: 0, storeCount: 0,
     discount: 0, serviceFee: 0, tax: 0, shipFee: 0, commission: 0,
-    stores: {}, items: {}, sources: {}, payments: {}, areas: {},
+    stores: {}, items: {}, sources: {}, payments: {}, areas: {}, hours: {}, hourBills: {},
   };
   for (const raw of Object.values(dayDocs)) {
     const d = toNet(raw);
@@ -454,6 +474,17 @@ function daySummary(date, dayDocs) {
       name: d.storeName, revenue: d.revenue, bills: d.bills, quantity: d.quantity, commission: d.commission || 0,
       ...etSplit(d.sources),
     };
+    // Theo giờ: hours = doanh thu (trước VAT), hourBills = TC. Ngày nạp trước khi có giờ thì bỏ trống.
+    const hrs = Object.entries(d.hours || {});
+    if (hrs.length) {
+      const st = s.stores[d.storeId];
+      st.hours = {}; st.hourBills = {};
+      for (const [k, v] of hrs) {
+        st.hours[k] = v.revenue; st.hourBills[k] = v.bills;
+        s.hours[k] = (s.hours[k] || 0) + v.revenue;
+        s.hourBills[k] = (s.hourBills[k] || 0) + v.bills;
+      }
+    }
     for (const [k, it] of Object.entries(d.items || {})) {
       // Doc nạp bằng bản script cũ không có nhóm/loại món -> null (Firestore không nhận undefined)
       const x = (s.items[k] ||= { name: it.name, group: it.group || null, type: it.type || null, quantity: 0, revenue: 0 });
