@@ -1557,7 +1557,7 @@ function Section({ n, title, sub, nav }) {
 
 /* Cột ngang "thực tế vs mốc so sánh" dùng lại cho ADS theo miền / tỉnh / AM:
    một chuỗi màu thương hiệu (giá trị thật) + một chuỗi xám (mốc: target hoặc kỳ trước). */
-function cmpBarOption(rows, { value, base, baseName, valueName, labelWidth = 92, fmt = unit }) {
+function cmpBarOption(rows, { value, base, baseName, valueName, labelWidth = 92, fmt = unit, extra }) {
   const list = [...rows].reverse();
   return {
     ...ANIM,
@@ -1566,10 +1566,11 @@ function cmpBarOption(rows, { value, base, baseName, valueName, labelWidth = 92,
       ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
       formatter: (ps) => {
         const r = list[ps[0].dataIndex];
-        const a = value(r), b = base(r);
-        const d = b ? pctDiff(a, b) : null;
-        return `<b>${r.name}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${money(p.value)} đ</b>`).join('<br/>')
-          + (d == null ? '' : `<br/>Chênh lệch <b>${(d >= 0 ? '+' : '') + pct1(d)}</b>`);
+        const a = value(r), b = base(r), e = extra ? extra.value(r) : null;
+        const d = b ? pctDiff(a, b) : null, de = e ? pctDiff(a, e) : null;
+        return `<b>${r.name}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value ? money(p.value) + ' đ' : '—'}</b>`).join('<br/>')
+          + (d == null ? '' : `<br/>vs ${baseName} <b>${(d >= 0 ? '+' : '') + pct1(d)}</b>`)
+          + (de == null ? '' : `<br/>vs ${extra.name} <b>${(de >= 0 ? '+' : '') + pct1(de)}</b>`);
       },
     },
     legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 11, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
@@ -1592,6 +1593,11 @@ function cmpBarOption(rows, { value, base, baseName, valueName, labelWidth = 92,
         itemStyle: { color: '#DCD8D3', borderRadius: [0, 4, 4, 0] },
         data: list.map((r) => Math.round(base(r))),
       },
+      ...(extra ? [{
+        name: extra.name, type: 'bar', barMaxWidth: 18,
+        itemStyle: { color: extra.color || '#9DBCE3', borderRadius: [0, 4, 4, 0] },
+        data: list.map((r) => Math.round(extra.value(r) || 0)),
+      }] : []),
     ],
   };
 }
@@ -2440,6 +2446,8 @@ function OverviewPage({ data }) {
   const slice = useMemo(() => sliceOf(cur, meta, filter), [cur, meta, filter]);
   const sliceAll = useMemo(() => sliceOf(cur, meta, {}), [cur, meta]);
   const prevSlice = useMemo(() => sliceOf(prev, meta, filter), [prev, meta, filter]);
+  // Cùng kỳ tháng trước (01-24/09 -> 01-24/08) - cột thứ 3 của các biểu đồ ADS
+  const momSlice = useMemo(() => sliceOf(data.mom || { byStore: {}, days: {} }, meta, filter), [data.mom, meta, filter]);
   const geoFilter = !!(filter.region || filter.prov || filter.city || filter.am || filter.store);
 
   /* ---- Target của kỳ đang chọn ----
@@ -2805,12 +2813,14 @@ function OverviewPage({ data }) {
       const prevRows = aggDim(prevSlice.stores, meta, d.keyOf, null, prevSlice.nDays, rangeDays);
       const prevBy = {};
       for (const r of prevRows) prevBy[r.name] = r;
+      const momBy = {};
+      for (const r of aggDim(momSlice.stores, meta, d.keyOf, null, momSlice.nDays, rangeDays)) momBy[r.name] = r;
       const rows = aggDim(slice.stores, meta, d.keyOf, targetInSlice, slice.nDays, rangeDays)
-        .map((r) => ({ ...r, prev: prevBy[r.name] || null }))
+        .map((r) => ({ ...r, prev: prevBy[r.name] || null, mom: momBy[r.name] || null }))
         .sort((a, b) => b.revenue - a.revenue);
       return { ...d, rows: d.limit ? rows.slice(0, d.limit) : rows };
     });
-  }, [slice, prevSlice, meta, targetInSlice, rangeDays]);
+  }, [slice, prevSlice, momSlice, meta, targetInSlice, rangeDays]);
   const dimClick = { region: 'region', city: 'city', am: 'am' };
 
   /* =================== MỤC AOV ===================
@@ -2875,15 +2885,19 @@ function OverviewPage({ data }) {
   /* Bảng số dùng chung cho 3 thẻ ADS (miền / tỉnh / AM): mỗi dòng đều có cột so tháng trước. */
   const adsTable = (d) => (
     <table>
-      <thead><tr><th>{d.label}</th><th className="r">ADS</th><th className="r">ADS target</th><th className="r">Đạt</th><th className="r">vs kỳ trước</th></tr></thead>
+      <thead><tr><th>{d.label}</th><th className="r">ADS</th><th className="r">ADS target</th><th className="r">Đạt</th>
+        <th className="r">ADS cùng kỳ tháng trước</th><th className="r">vs CKTT</th><th className="r">vs kỳ trước</th></tr></thead>
       <tbody>{d.rows.map((r) => {
         const g = r.prev && r.prev.ads ? pctDiff(r.ads, r.prev.ads) : null;
+        const gm = r.mom && r.mom.ads ? pctDiff(r.ads, r.mom.ads) : null;
         return (
           <tr key={r.name}>
             <td>{r.name}</td>
             <td className="r">{money2(r.ads)}</td>
             <td className="r">{r.adsTarget ? money2(r.adsTarget) : '—'}</td>
             <td className="r">{r.adsTarget ? pct1(r.ads / r.adsTarget * 100) : '—'}</td>
+            <td className="r">{r.mom && r.mom.ads ? money2(r.mom.ads) : '—'}</td>
+            <td className={cls('r', gm != null && (gm >= 0 ? 'up' : 'dn'))}>{gm == null ? '—' : (gm >= 0 ? '+' : '') + pct1(gm)}</td>
             <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td>
           </tr>
         );
@@ -2911,6 +2925,7 @@ function OverviewPage({ data }) {
 
   const dimRegion = dims[0], dimCity = dims[1], dimAm = dims[2];
   const adsCardH = barCardH(Math.max(...dims.map((d) => d.rows.length)), 30);
+  const adsCardH3 = barCardH(Math.max(...dims.map((d) => d.rows.length)), 40, 240, 480);
   const aovCardH = barCardH(Math.max(dimCity.rows.length, dimAm.rows.length), 32, 240, 380);
 
   return (
@@ -3004,11 +3019,12 @@ function OverviewPage({ data }) {
           <div className="c4" key={'ads-' + d.k}>
             <ChartCard
               title={`ADS theo ${d.lower}`}
-              sub={d.limit ? `Top ${d.limit} · cột xám = ADS target` : 'Cột xám = ADS target · bấm để lọc'}
-              height={adsCardH}
+              sub={d.limit ? `Top ${d.limit} · xám = target · xanh = cùng kỳ tháng trước` : 'Xám = ADS target · xanh = cùng kỳ tháng trước · bấm để lọc'}
+              height={adsCardH3}
               option={cmpBarOption(d.rows, {
                 value: (r) => r.ads, base: (r) => r.adsTarget,
                 valueName: 'ADS thực tế', baseName: 'ADS target', labelWidth: d.width,
+                extra: { name: 'Cùng kỳ tháng trước', value: (r) => (r.mom ? r.mom.ads : 0) },
               })}
               onClick={(p) => toggle(dimClick[d.k], d.rows[d.rows.length - 1 - p.dataIndex].name)}
               empty={!d.rows.length ? 'Chưa có dữ liệu.' : null}
