@@ -1956,6 +1956,409 @@ function ZoneSection({ cur, mom, meta, momRange, range }) {
   );
 }
 
+/* Gộp mọi số của MỘT chi nhánh trong một bộ số đã tổng hợp (summarize): tổng kỳ, từng
+   ngày, từng thứ trong tuần. Số ngày = ngày CÓ doanh thu của chính chi nhánh đó. */
+function storeAgg(sum, id) {
+  const t = { revenue: 0, bills: 0, quantity: 0, commission: 0, etRev: 0, etBills: 0, dRev: 0, dBills: 0, nDays: 0, tcDays: 0 };
+  const byDate = {}, byWd = {};
+  for (const [date, d] of Object.entries(sum.days || {})) {
+    const st = (d.stores || {})[id];
+    if (!st) continue;
+    const et = st.et || {}, dl = st.dlv || {};
+    t.revenue += st.revenue || 0; t.bills += st.bills || 0; t.quantity += st.quantity || 0; t.commission += st.commission || 0;
+    t.etRev += et.revenue || 0; t.etBills += et.bills || 0; t.dRev += dl.revenue || 0; t.dBills += dl.bills || 0;
+    if (st.revenue > 0) t.nDays++;
+    if (st.bills > 0) t.tcDays++;
+    byDate[date] = {
+      revenue: st.revenue || 0, bills: st.bills || 0, aov: aovOf(st.revenue, st.bills),
+      aovET: et.bills ? aovOf(et.revenue, et.bills) : null, aovD: dl.bills ? aovOf(dl.revenue, dl.bills) : null,
+    };
+    if (st.revenue > 0) {
+      const w = (byWd[new Date(date + 'T00:00:00').getDay()] ||= { revenue: 0, bills: 0, n: 0 });
+      w.revenue += st.revenue; w.bills += st.bills || 0; w.n++;
+    }
+  }
+  return {
+    ...t, byDate, byWd,
+    aov: aovOf(t.revenue, t.bills),
+    aovET: t.etBills ? aovOf(t.etRev, t.etBills) : null,
+    aovD: t.dBills ? aovOf(t.dRev, t.dBills) : null,
+    ads: adsOf(t.revenue, t.nDays, 1),
+    adtc: adsOf(t.bills, t.tcDays, 1),
+    upt: t.bills ? t.quantity / t.bills : 0,
+    etShare: t.revenue ? t.etRev / t.revenue * 100 : null,
+    dShare: t.revenue ? t.dRev / t.revenue * 100 : null,
+  };
+}
+
+/* Hạng doanh thu của chi nhánh trong một nhóm cửa hàng (cả chuỗi hoặc cùng AM). */
+function rankOf(sum, id, keep) {
+  const list = Object.values(sum.byStore || {}).filter((s) => s.revenue > 0 && (!keep || keep(s.id)))
+    .sort((a, b) => b.revenue - a.revenue);
+  const i = list.findIndex((s) => s.id === id);
+  return i < 0 ? null : { rank: i + 1, of: list.length };
+}
+
+/* Một chỉ số theo từng ngày: kỳ này (nâu) và cùng kỳ tháng trước (xám gạch), ghép ngày
+   24/09 với 24/08 bằng monthBack - không ghép theo thứ tự nên tháng ngắn/dài vẫn đúng ngày. */
+function cmpDayOption(dayKeys, cur, prev, { field, name, fmt = unit, area, extra }) {
+  const v = (m, k) => (m[k] && m[k][field] != null && m[k][field] !== 0 ? Math.round(m[k][field]) : null);
+  return {
+    ...ANIM,
+    grid: { left: 56, right: 18, top: 28, bottom: 30 },
+    tooltip: {
+      ...TIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: INK.axis, width: 1 } },
+      formatter: (ps) => {
+        const k = dayKeys[ps[0].dataIndex], pk = monthBack(k);
+        const a = v(cur, k), b = v(prev, pk), d = a != null && b ? pctDiff(a, b) : null;
+        return `<b>${dFull(k)}</b> · ${wdOf(k)} <b>${a == null ? '—' : money(a)}</b><br/>`
+          + `<span style="color:${INK.mute}">${dFull(pk)} · ${wdOf(pk)}</span> <b>${b == null ? '—' : money(b)}</b>`
+          + (d == null ? '' : `<br/>Chênh lệch <b>${(d >= 0 ? '+' : '') + pct1(d)}</b>`);
+      },
+    },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 3, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: { type: 'category', data: dayKeys.map(dShort), boundaryGap: false, ...AXIS_STYLE, splitLine: { show: false } },
+    yAxis: { type: 'value', scale: !area, ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: fmt } },
+    series: [
+      {
+        name: name + ' kỳ này', type: 'line', smooth: 0.3, symbol: 'circle', symbolSize: 5, connectNulls: true,
+        lineStyle: { width: 2.2, color: BRAND_HEX }, itemStyle: { color: BRAND_HEX },
+        ...(area ? { areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(176,125,43,.24)' }, { offset: 1, color: 'rgba(176,125,43,.02)' }]) } } : {}),
+        data: dayKeys.map((k) => v(cur, k)),
+      },
+      {
+        name: 'Cùng kỳ tháng trước', type: 'line', smooth: 0.3, symbol: 'none', connectNulls: true,
+        lineStyle: { width: 2, color: '#B9B5AE', type: 'dashed' }, itemStyle: { color: '#B9B5AE' },
+        data: dayKeys.map((k) => v(prev, monthBack(k))),
+      },
+      ...(extra || []),
+    ],
+  };
+}
+
+/* Mục "Báo cáo chi nhánh": chọn 1 chi nhánh -> mọi chỉ số của chi nhánh đó, luôn so với
+   CÙNG KỲ THÁNG TRƯỚC (01-24/09 so với 01-24/08). Số món đọc thêm d05ItemStores nên chỉ
+   tải khi bấm, và giữ lại trong phiên để đổi chi nhánh không phải đọc lại. */
+function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays, focus }) {
+  const options = useMemo(() => Object.values(cur.byStore || {}).filter((s) => s.revenue > 0)
+    .map((s) => ({ id: s.id, name: storeShort((meta[s.id] || {}).storeName || s.name), region: (meta[s.id] || {}).region || UNASSIGNED, city: (meta[s.id] || {}).city || '' }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'vi')), [cur, meta]);
+  const top = useMemo(() => (Object.values(cur.byStore || {}).sort((a, b) => b.revenue - a.revenue)[0] || {}).id, [cur]);
+  const [picked, setPicked] = useState('');
+  useEffect(() => { if (focus) setPicked(focus); }, [focus]);
+  const id = options.some((o) => o.id === picked) ? picked : top;
+  const m = meta[id] || {};
+
+  const now = useMemo(() => (id ? storeAgg(cur, id) : null), [cur, id]);
+  const before = useMemo(() => (id ? storeAgg(mom || { days: {} }, id) : null), [mom, id]);
+  const hasPrev = before && before.revenue > 0;
+
+  const rangeDays = dDiff(range.from, range.to) + 1;
+  const dayKeys = useMemo(() => {
+    const out = [];
+    for (let k = range.from; k <= range.to; k = dAdd(k, 1)) out.push(k);
+    return out;
+  }, [range.from, range.to]);
+
+  const target = (targetByStore || {})[id] || 0;
+  const achieve = target && now ? now.revenue / target * 100 : null;
+  const fc = target && now ? now.ads * rangeDays / target * 100 : null;
+  const sameAm = (x) => m.am && ((meta[x] || {}).am || '') === m.am;
+  const rk = useMemo(() => id && {
+    chain: rankOf(cur, id), chainPrev: rankOf(mom || {}, id),
+    am: m.am ? rankOf(cur, id, sameAm) : null, amPrev: m.am ? rankOf(mom || {}, id, sameAm) : null,
+  }, [cur, mom, id, meta]);
+
+  /* ---- Món bán tại chi nhánh (tải khi bấm) ---- */
+  const rkey = range.from + '_' + range.to;
+  const [items, setItems] = useState({ key: null, cur: null, mom: null, busy: false, err: '' });
+  const loadItems = async () => {
+    setItems((x) => ({ ...x, busy: true, err: '' }));
+    try {
+      const parse = (docs) => docs.map((d) => ({ date: d.date, items: d.payload ? JSON.parse(d.payload) : (d.items || {}) }));
+      const [a, b] = await Promise.all([loadItemStores(range.from, range.to), loadItemStores(momRange.from, momRange.to)]);
+      setItems({ key: rkey, cur: parse(a), mom: parse(b), busy: false, err: '' });
+    } catch (e) { setItems((x) => ({ ...x, busy: false, err: e.message })); }
+  };
+  const itemRows = useMemo(() => {
+    if (items.key !== rkey || !id) return null;
+    const agg = (docs, f) => {
+      const out = {};
+      for (const d of docs) for (const it of Object.values(d.items)) {
+        const v = (it.stores || {})[id];
+        if (!v) continue;
+        const [q, r] = Array.isArray(v) ? v : [v.quantity, v.revenue];
+        const x = (out[it.name] ||= { name: it.name, group: it.group || 'Khác', qty: 0, rev: 0, pq: 0, pr: 0 });
+        x[f[0]] += q || 0; x[f[1]] += r || 0;
+      }
+      return out;
+    };
+    const a = agg(items.cur, ['qty', 'rev']), b = agg(items.mom, ['pq', 'pr']);
+    for (const [k, x] of Object.entries(b)) {
+      if (a[k]) { a[k].pq = x.pq; a[k].pr = x.pr; } else a[k] = { ...x, qty: 0, rev: 0 };
+    }
+    return Object.values(a).map((x) => ({ ...x, g: x.pq ? pctDiff(x.qty, x.pq) : null })).sort((p, q) => q.qty - p.qty);
+  }, [items, rkey, id]);
+
+  if (!options.length || !now) return <div className="empty">Kỳ này chưa có chi nhánh nào có doanh thu.</div>;
+
+  const P = before;
+  const cmp = { deltaLabel: 'vs cùng kỳ tháng trước', noPrevHint: 'chưa có số cùng kỳ tháng trước' };
+  const cp = (v) => (hasPrev ? v : null);
+  const money2 = (v) => money(v) + ' đ';
+  const na = (v, f = money2) => (v == null ? '—' : f(v));
+  const delta = (g) => <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td>;
+  const rankTxt = (r) => (r ? `#${r.rank}/${r.of}` : '—');
+
+  /* Bảng so sánh đầy đủ: mỗi dòng một chỉ số. pp = so bằng điểm % thay vì % tăng trưởng. */
+  const dec1 = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
+  const lines = [
+    ['Doanh thu', now.revenue, P.revenue, money2],
+    ['Doanh thu ET · tại chỗ + mang về', now.etRev, P.etRev, money2],
+    ['Doanh thu D · giao hàng', now.dRev, P.dRev, money2],
+    ['Tỉ trọng giao hàng (D)', now.dShare, P.revenue ? P.dShare : null, pct1, 'pp'],
+    ['Hoa hồng app', now.commission, P.commission, money2],
+    ['TC · hoá đơn', now.bills, P.bills, money],
+    ['TC ET', now.etBills, P.etBills, money],
+    ['TC D', now.dBills, P.dBills, money],
+    ['AOV chung', now.aov, P.aov, money2],
+    ['AOV-ET', now.aovET, P.aovET, money2],
+    ['AOV-D', now.aovD, P.aovD, money2],
+    ['ADS · doanh thu TB/ngày', now.ads, P.ads, money2],
+    ['ADTC · TC TB/ngày', now.adtc, P.adtc, (v) => dec1(v)],
+    ['Số món bán', now.quantity, P.quantity, money],
+    ['Món / hoá đơn (UPT)', now.upt, P.upt, dec1],
+    ['Số ngày có bán', now.nDays, P.nDays, money],
+    ['Hạng doanh thu toàn chuỗi', rk.chain && rk.chain.rank, rk.chainPrev && rk.chainPrev.rank, (v) => '#' + v, 'rank'],
+    ...(m.am ? [['Hạng trong zone AM ' + m.am, rk.am && rk.am.rank, rk.amPrev && rk.amPrev.rank, (v) => '#' + v, 'rank']] : []),
+  ];
+
+  /* Cơ cấu kênh: ET / D kỳ này vs cùng kỳ */
+  const chanRows = [
+    { name: 'Doanh thu ET', a: now.etRev, b: P.etRev },
+    { name: 'Doanh thu D', a: now.dRev, b: P.dRev },
+  ];
+  const chanOption = cmpBarOption(chanRows, { value: (r) => r.a, base: (r) => r.b || 0, valueName: 'Kỳ này', baseName: 'Cùng kỳ tháng trước', labelWidth: 86 });
+
+  /* Theo thứ trong tuần: doanh thu TB mỗi ngày có bán */
+  const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
+  const wdAvg = (a, w) => (a.byWd[w] && a.byWd[w].n ? a.byWd[w].revenue / a.byWd[w].n : 0);
+  const wdOption = {
+    ...ANIM,
+    grid: { left: 52, right: 12, top: 28, bottom: 26 },
+    tooltip: { ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
+      formatter: (ps) => `<b>${WD[WD_ORDER[ps[0].dataIndex]]}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value ? money(p.value) + ' đ' : '—'}</b>`).join('<br/>') },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 11, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: { type: 'category', data: WD_ORDER.map((w) => WD[w]), ...AXIS_STYLE, splitLine: { show: false } },
+    yAxis: { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+    series: [
+      { name: 'Kỳ này', type: 'bar', barMaxWidth: 18, barGap: '20%', itemStyle: { color: BRAND_HEX, borderRadius: [4, 4, 0, 0] }, data: WD_ORDER.map((w) => Math.round(wdAvg(now, w))) },
+      { name: 'Cùng kỳ tháng trước', type: 'bar', barMaxWidth: 18, itemStyle: { color: '#DCD8D3', borderRadius: [4, 4, 0, 0] }, data: WD_ORDER.map((w) => Math.round(wdAvg(P, w))) },
+    ],
+  };
+
+  /* 12 tháng của chi nhánh (dữ liệu cả năm đã tải nền cho Summary) */
+  const year = yearDays ? monthlyAov(yearDays, (x) => x === id) : null;
+  const yearOption = year && {
+    ...ANIM,
+    grid: { left: 52, right: 52, top: 28, bottom: 26 },
+    tooltip: { ...TIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(20,24,28,.04)' } },
+      formatter: (ps) => `<b>Tháng ${ps[0].dataIndex + 1}</b><br/>` + ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value ? money(p.value) + ' đ' : '—'}</b>`).join('<br/>') },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 11, itemHeight: 8, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    xAxis: { type: 'category', data: year.map((r) => 'T' + r.month), ...AXIS_STYLE, splitLine: { show: false } },
+    yAxis: [
+      { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+      { type: 'value', scale: true, ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+    ],
+    series: [
+      { name: 'Doanh thu', type: 'bar', barMaxWidth: 22, itemStyle: { color: BRAND_HEX, borderRadius: [4, 4, 0, 0] }, data: year.map((r) => Math.round(r.revenue) || null) },
+      { name: 'AOV', type: 'line', yAxisIndex: 1, smooth: 0.25, symbol: 'circle', symbolSize: 5, connectNulls: true,
+        lineStyle: { width: 2, color: SERIES[0] }, itemStyle: { color: SERIES[0] }, data: year.map((r) => (r.aov == null ? null : Math.round(r.aov))) },
+    ],
+  };
+
+  const dayTarget = target ? target / rangeDays : 0;
+  const revDayOption = cmpDayOption(dayKeys, now.byDate, P.byDate, {
+    field: 'revenue', name: 'Doanh thu', area: true,
+    extra: dayTarget ? [{ name: 'Target/ngày', type: 'line', symbol: 'none', silent: true, lineStyle: { width: 1.5, type: 'dotted', color: SERIES[2] }, data: dayKeys.map(() => Math.round(dayTarget)) }] : null,
+  });
+  const tcDayOption = cmpDayOption(dayKeys, now.byDate, P.byDate, { field: 'bills', name: 'TC', fmt: (v) => money(v) });
+  const aovDayOpt = cmpDayOption(dayKeys, now.byDate, P.byDate, { field: 'aov', name: 'AOV' });
+
+  const byRegion = {};
+  for (const o of options) (byRegion[o.region] ||= []).push(o);
+  const upItems = itemRows ? itemRows.filter((r) => r.g != null && r.pq >= 10 && r.g > 0).sort((a, b) => b.g - a.g).slice(0, 5) : [];
+  const dnItems = itemRows ? itemRows.filter((r) => r.g != null && r.pq >= 10 && r.g < 0).sort((a, b) => a.g - b.g).slice(0, 5) : [];
+  const newItems = itemRows ? itemRows.filter((r) => !r.pq && r.qty).length : 0;
+  const goneItems = itemRows ? itemRows.filter((r) => r.pq && !r.qty).length : 0;
+  const itemQty = itemRows ? itemRows.reduce((a, r) => a + r.qty, 0) : 0;
+
+  return (
+    <>
+      <div className="flt" style={{ border: 0, paddingLeft: 0, paddingTop: 0 }}>
+        <select className="inp" value={id} onChange={(e) => setPicked(e.target.value)} style={{ minWidth: 240 }}>
+          {Object.keys(byRegion).sort().map((rg) => (
+            <optgroup key={rg} label={rg}>
+              {byRegion[rg].map((o) => <option key={o.id} value={o.id}>{o.name}{o.city ? ' · ' + o.city : ''}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <span className="hint">
+          {[m.region, m.city, m.am && 'AM ' + m.am, m.dm && 'DM ' + m.dm].filter(Boolean).join(' · ') || 'Chưa gán miền / AM'}
+          {' · '}so với {dFull(momRange.from)} – {dFull(momRange.to)}
+          {!hasPrev ? ' · chi nhánh chưa có số cùng kỳ tháng trước' : ''}
+        </span>
+      </div>
+
+      <div className="kpi-row">
+        <Kpi hero label="Doanh thu" value={unit(now.revenue)} cur={now.revenue} prev={cp(P.revenue)} {...cmp}
+          spark={dayKeys.map((k) => (now.byDate[k] ? now.byDate[k].revenue : 0))} />
+        <Kpi label="TC · hoá đơn" value={unit(now.bills)} cur={now.bills} prev={cp(P.bills)} {...cmp} />
+        <Kpi tint="blue" label="AOV · TB/hoá đơn" value={unit(now.aov)} cur={now.aov} prev={cp(P.aov)} {...cmp} />
+        <TargetTile target={target} achieve={achieve} fc={fc} label="Target chi nhánh trong kỳ" />
+      </div>
+      <div className="kpi-row">
+        <Kpi label="ADS · doanh thu TB/ngày" value={unit(now.ads)} cur={now.ads} prev={cp(P.ads)} {...cmp} />
+        <Kpi label="ADTC · TC TB/ngày" value={dec1(now.adtc)} cur={now.adtc} prev={cp(P.adtc)} {...cmp} />
+        <Kpi label="AOV-ET · tại chỗ + mang về" value={na(now.aovET, unit)} cur={now.aovET} prev={cp(P.aovET)} {...cmp} />
+        <Kpi label="AOV-D · nguồn giao hàng" value={na(now.aovD, unit)} cur={now.aovD} prev={cp(P.aovD)} {...cmp} />
+      </div>
+      <div className="kpi-row">
+        <Kpi sm label="Tỉ trọng giao hàng (D)" value={na(now.dShare, pct1)}
+          hint={hasPrev && P.dShare != null ? `cùng kỳ ${pct1(P.dShare)} · ${now.dShare - P.dShare >= 0 ? '+' : ''}${dec1(now.dShare - P.dShare)} điểm` : null} />
+        <Kpi sm label="Món / hoá đơn (UPT)" value={dec1(now.upt)} cur={now.upt} prev={cp(P.upt)} {...cmp} />
+        <Kpi sm label="Hạng doanh thu toàn chuỗi" value={rankTxt(rk.chain)}
+          hint={rk.chainPrev ? `cùng kỳ ${rankTxt(rk.chainPrev)}` : 'chưa có hạng cùng kỳ'} />
+        <Kpi sm label={m.am ? 'Hạng trong zone AM ' + m.am : 'Hạng trong zone AM'} value={rankTxt(rk.am)}
+          hint={!m.am ? 'chưa gán AM' : rk.amPrev ? `cùng kỳ ${rankTxt(rk.amPrev)}` : 'chưa có hạng cùng kỳ'} />
+      </div>
+
+      <div className="dash">
+        <div className="c8">
+          <ChartCard title="Doanh thu theo ngày" sub={`Đường nâu là kỳ này, đường xám là cùng ngày tháng trước${dayTarget ? ' · chấm xanh là target/ngày' : ''}`}
+            height={300} option={revDayOption}
+            table={(
+              <table>
+                <thead><tr><th>Ngày</th><th className="r">Doanh thu</th><th>Cùng kỳ</th><th className="r">Doanh thu</th><th className="r">Chênh lệch</th></tr></thead>
+                <tbody>{dayKeys.map((k) => {
+                  const a = now.byDate[k], b = P.byDate[monthBack(k)];
+                  return (
+                    <tr key={k}><td>{dShort(k)} · {wdOf(k)}</td><td className="r">{a ? money2(a.revenue) : '—'}</td>
+                      <td>{dShort(monthBack(k))} · {wdOf(monthBack(k))}</td><td className="r">{b ? money2(b.revenue) : '—'}</td>
+                      {delta(a && b ? pctDiff(a.revenue, b.revenue) : null)}</tr>
+                  );
+                })}</tbody>
+              </table>
+            )} />
+        </div>
+        <div className="c4">
+          <ChartCard title="Kênh bán ET / D" sub="Tại chỗ + mang về so với giao hàng" height={300} option={chanOption}
+            table={(
+              <table>
+                <thead><tr><th>Kênh</th><th className="r">Kỳ này</th><th className="r">Cùng kỳ</th><th className="r">Chênh lệch</th></tr></thead>
+                <tbody>{chanRows.map((r) => (
+                  <tr key={r.name}><td>{r.name}</td><td className="r">{money2(r.a)}</td><td className="r">{money2(r.b)}</td>{delta(pctDiff(r.a, r.b))}</tr>
+                ))}</tbody>
+              </table>
+            )} />
+        </div>
+        <div className="c6">
+          <ChartCard title="TC theo ngày" sub="Số hoá đơn mỗi ngày · kỳ này vs cùng kỳ tháng trước" height={260} option={tcDayOption} />
+        </div>
+        <div className="c6">
+          <ChartCard title="AOV theo ngày" sub="Giá trị TB mỗi hoá đơn · kỳ này vs cùng kỳ tháng trước" height={260} option={aovDayOpt} />
+        </div>
+        <div className="c6">
+          <ChartCard title="Doanh thu TB theo thứ" sub="Trung bình mỗi ngày có bán, gom theo thứ trong tuần" height={260} option={wdOption} />
+        </div>
+        <div className="c6">
+          <ChartCard title={`12 tháng năm ${range.from.slice(0, 4)}`} sub="Doanh thu từng tháng (cột) và AOV (đường) của chi nhánh"
+            height={260} option={yearOption} empty={!year ? 'Đang tải số cả năm…' : null} />
+        </div>
+
+        <div className="c12">
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-h">
+              <div><h3>So sánh đầy đủ với cùng kỳ tháng trước</h3>
+                <p>{rangeLabel(range)} so với {rangeLabel(momRange)} · tỉ trọng so bằng điểm %, hạng so bằng số bậc</p></div>
+            </div>
+            <div className="scroll-x">
+              <table className="tb">
+                <thead><tr><th>Chỉ số</th><th className="r">Kỳ này</th><th className="r">Cùng kỳ tháng trước</th><th className="r">Chênh lệch</th><th className="r">%</th></tr></thead>
+                <tbody>{lines.map(([label, a, b, f, kind]) => {
+                  const ok = a != null && b != null && hasPrev;
+                  const diff = ok ? a - b : null;
+                  /* Hạng: số nhỏ hơn là tốt hơn -> đảo dấu để "lên hạng" hiện màu xanh */
+                  const good = diff == null ? null : kind === 'rank' ? diff < 0 : diff >= 0;
+                  const dTxt = diff == null ? '—' : kind === 'pp' ? (diff >= 0 ? '+' : '') + dec1(diff) + ' điểm'
+                    : kind === 'rank' ? (diff === 0 ? 'giữ hạng' : (diff < 0 ? 'lên ' : 'xuống ') + Math.abs(diff) + ' bậc')
+                      : (diff >= 0 ? '+' : '−') + f(Math.abs(diff));
+                  const g = ok && !kind ? pctDiff(a, b) : null;
+                  return (
+                    <tr key={label}>
+                      <td>{label}</td>
+                      <td className="r"><b>{a == null ? '—' : f(a)}</b></td>
+                      <td className="r">{b == null || !hasPrev ? '—' : f(b)}</td>
+                      <td className={cls('r', good != null && diff !== 0 && (good ? 'up' : 'dn'))}>{dTxt}</td>
+                      {delta(g)}
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div className="c12">
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-h">
+              <div><h3>Món bán tại chi nhánh</h3>
+                <p>Số lượng từng món kỳ này vs cùng kỳ tháng trước · doanh thu món theo giá Fabi (gồm VAT)</p></div>
+              <div className="sp">
+                {items.key !== rkey && (
+                  <button className="btn sm pri" disabled={items.busy} onClick={loadItems}>{items.busy ? 'Đang đọc…' : 'Xem món bán'}</button>
+                )}
+              </div>
+            </div>
+            {items.err ? <div className="banner">{items.err}</div> : null}
+            {!itemRows ? <div className="empty">Bấm "Xem món bán" để đọc số món của kỳ này và cùng kỳ tháng trước (đọc một lần, đổi chi nhánh không phải tải lại).</div>
+              : !itemRows.length ? <div className="empty">Chi nhánh chưa có số món trong kỳ.</div> : (
+                <>
+                  <div className="kpi-row" style={{ padding: '0 16px' }}>
+                    <Kpi sm label="Số món khác nhau đã bán" value={money(itemRows.filter((r) => r.qty).length)}
+                      hint={`${newItems} món mới · ${goneItems} món không còn bán`} />
+                    <Kpi sm label="Món bán chạy nhất" value={itemRows[0].name}
+                      hint={`đã bán ${money(itemRows[0].qty)} · ${pct1(itemQty ? itemRows[0].qty / itemQty * 100 : 0)} tổng SL`} />
+                    <Kpi sm label="Tăng mạnh nhất" value={upItems[0] ? upItems[0].name : '—'}
+                      hint={upItems[0] ? `+${pct1(upItems[0].g)} · ${money(upItems[0].pq)} → ${money(upItems[0].qty)}` : 'không món nào tăng'} />
+                    <Kpi sm label="Giảm mạnh nhất" value={dnItems[0] ? dnItems[0].name : '—'}
+                      hint={dnItems[0] ? `${pct1(dnItems[0].g)} · ${money(dnItems[0].pq)} → ${money(dnItems[0].qty)}` : 'không món nào giảm'} />
+                  </div>
+                  <div className="scroll-x" style={{ maxHeight: 460, overflowY: 'auto' }}>
+                    <table className="tb">
+                      <thead><tr><th>#</th><th>Món</th><th>Nhóm</th><th className="r">SL kỳ này</th><th className="r">SL cùng kỳ</th><th className="r">vs CKTT</th>
+                        <th className="r">ADQ</th><th className="r">Tỉ trọng SL</th><th className="r">Doanh thu</th><th className="r">Doanh thu cùng kỳ</th></tr></thead>
+                      <tbody>{itemRows.map((r, i) => (
+                        <tr key={r.name}>
+                          <td style={{ color: INK.mute }}>{i + 1}</td><td>{r.name}</td><td>{r.group}</td>
+                          <td className="r"><b>{money(r.qty)}</b></td><td className="r">{r.pq ? money(r.pq) : '—'}</td>
+                          {r.pq ? delta(r.g) : <td className="r"><span className="tag t-green">mới</span></td>}
+                          <td className="r">{(r.qty / rangeDays).toFixed(1).replace('.', ',')}</td>
+                          <td className="r">{pct1(itemQty ? r.qty / itemQty * 100 : 0)}</td>
+                          <td className="r">{money2(r.rev)}</td><td className="r">{r.pr ? money2(r.pr) : '—'}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function OverviewPage({ data }) {
   const { cur, prev, range, storesMeta, targets } = data;
   const [filter, setFilter] = useState({});
@@ -2787,6 +3190,11 @@ function OverviewPage({ data }) {
       {/* ============ 7. ZONE AM/DM ============ */}
       <Section n="7" title="Zone AM / DM" sub="Chọn một AM hoặc DM để xem số của cả zone và từng chi nhánh — luôn so với cùng kỳ tháng trước" />
       <ZoneSection cur={cur} mom={data.mom} meta={meta} momRange={data.momRange || range} range={range} />
+
+      {/* ============ 8. BÁO CÁO CHI NHÁNH ============ */}
+      <Section n="8" title="Báo cáo chi nhánh" sub="Chọn một chi nhánh để xem mọi chỉ số của chi nhánh đó — luôn so với cùng kỳ tháng trước" />
+      <StoreSection cur={cur} mom={data.mom} meta={meta} range={range} momRange={data.momRange || range}
+        targetByStore={targetByStore} yearDays={data.yearDays} focus={filter.store} />
     </>
   );
 }
