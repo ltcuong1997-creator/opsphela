@@ -4260,7 +4260,7 @@ function D05ImportCard({ storesMeta, onDone }) {
             onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
             onDrop={(e) => { e.preventDefault(); setDrag(false); run(e.dataTransfer.files); }}
             style={busy ? { opacity: 0.6, pointerEvents: 'none' } : null}>
-            <input type="file" accept=".xlsx,.xls" multiple onChange={(e) => { const f = e.target.files; e.target.value = ''; run(f); }} />
+            <input type="file" accept=".xlsx,.xls" multiple onChange={(e) => { const f = [...e.target.files]; e.target.value = ''; run(f); }} />
             <Ic.up size={22} style={{ margin: '0 auto 8px', color: 'var(--brand)' }} />
             <div style={{ fontWeight: 600 }}>Bấm để chọn hoặc kéo thả file D05 (.xlsx)</div>
             <div className="hint">Chọn được nhiều file một lúc · file 1 ngày hay nhiều ngày đều được · ngày tới {dFull(window.D05 ? window.D05.EXCEL_UNTIL : '2025-12-31')} giữ số Excel, không nạp đè</div>
@@ -4568,9 +4568,20 @@ function csCount(list, key, { split, empty } = {}) {
   return Object.entries(m).map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n);
 }
 
+/* Pha màu: t=0 -> nhạt (gần trắng), t=1 -> đậm hơn màu gốc. Dùng để tô cột / ô theo số phiếu:
+   càng nhiều phiếu càng đậm, liếc là thấy lỗi nào nặng. */
+function csShade(hex, t) {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const light = c.map((v) => v + (255 - v) * 0.78), dark = c.map((v) => v * 0.72);
+  const k = Math.max(0, Math.min(1, t));
+  const out = light.map((l, i) => Math.round(l + (dark[i] - l) * k));
+  return '#' + out.map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
 /* Cột ngang đếm số phiếu, kèm cột xám cùng kỳ tháng trước; bấm để lọc. */
 function csBarOption(rows, prevOf, { labelWidth = 150, color = BRAND_HEX, sel, prevName = 'Cùng kỳ tháng trước' } = {}) {
   const list = [...rows].reverse();
+  const maxN = Math.max(1, ...rows.map((r) => r.n));
   return {
     ...ANIM,
     grid: { left: labelWidth + 12, right: 40, top: 24, bottom: 6 },
@@ -4590,7 +4601,10 @@ function csBarOption(rows, prevOf, { labelWidth = 150, color = BRAND_HEX, sel, p
     },
     series: [
       { name: 'Kỳ này', type: 'bar', barMaxWidth: 16, barGap: '25%', barCategoryGap: '30%',
-        itemStyle: { color: (p) => (sel && sel !== list[p.dataIndex].name ? '#E3D3B5' : color), borderRadius: [0, 4, 4, 0] },
+        itemStyle: {
+          color: (p) => (sel && sel !== list[p.dataIndex].name ? '#ECE8E3' : csShade(color, 0.2 + 0.8 * list[p.dataIndex].n / maxN)),
+          borderRadius: [0, 4, 4, 0],
+        },
         label: { show: true, position: 'right', distance: 6, color: INK.txt, fontSize: 10.5, fontWeight: 700, fontFamily: FONT },
         data: list.map((r) => r.n) },
       ...(prevOf ? [{ name: prevName, type: 'bar', barMaxWidth: 16, itemStyle: { color: '#DCD8D3', borderRadius: [0, 4, 4, 0] },
@@ -4645,13 +4659,14 @@ function CSSection({ cur, cmpSales, range, cmpRange, cmpLabel, storesMeta, csSto
   const storeLabel = useCallback((t) => { const id = storeOf(t); return id ? storeShort((meta[id] || {}).storeName || t.storeName) : t.storeName; }, [storeOf, meta]);
   const inGeo = useCallback((t) => { if (!geoFilter) return true; const id = storeOf(t); return !!id && keep(id); }, [geoFilter, keep, storeOf]);
 
-  const pass = (t, skip) => inGeo(t) && (!noSpam || t.ticketType !== 'Spam')
-    && (skip === 'type1' || !f.type1 || t.type1 === f.type1)
-    && (skip === 'type2' || !f.type2 || t.type2 === f.type2)
-    && (skip === 'store' || !f.store || storeLabel(t) === f.store)
-    && (skip === 'region' || !f.region || t.region === f.region)
-    && (skip === 'channel' || !f.channel || t.channel === f.channel)
-    && (skip === 'verdict' || !f.verdict || csVerdict(t) === f.verdict);
+  const pass = (t, sk) => { const skip = (k) => (Array.isArray(sk) ? sk.includes(k) : sk === k); return passAll(t, skip); };
+  const passAll = (t, skip) => inGeo(t) && (!noSpam || t.ticketType !== 'Spam')
+    && (skip('type1') || !f.type1 || t.type1 === f.type1)
+    && (skip('type2') || !f.type2 || t.type2 === f.type2)
+    && (skip('store') || !f.store || storeLabel(t) === f.store)
+    && (skip('region') || !f.region || t.region === f.region)
+    && (skip('channel') || !f.channel || t.channel === f.channel)
+    && (skip('verdict') || !f.verdict || csVerdict(t) === f.verdict);
   const all = tk.now || [], allPrev = tk.prev || [];
   const list = useMemo(() => all.filter((t) => pass(t)), [all, f, noSpam, storeLabel, inGeo]);
   const listPrev = useMemo(() => allPrev.filter((t) => pass(t)), [allPrev, f, noSpam, storeLabel, inGeo]);
@@ -4712,6 +4727,43 @@ function CSSection({ cur, cmpSales, range, cmpRange, cmpLabel, storesMeta, csSto
   const tags = csCount(list, 'tags', { split: ';' }).filter((r) => !/^ad_/i.test(r.name)).slice(0, 10);
   const results = csCount(list, 'result');
   const onBar = (k) => (p) => toggle(k, p.name);
+
+  /* Bản đồ nhiệt chi nhánh × loại lỗi (chỉ phiếu khiếu nại): số trong ô, màu đậm nhạt theo
+     số. Bỏ qua bộ lọc chi nhánh / loại lỗi của chính nó để bấm ô là lọc được. */
+  const heat = useMemo(() => {
+    const src = all.filter((t) => pass(t, ['store', 'type1']) && csIsComplaint(t) && t.storeName && t.type1);
+    const byStore = {}, byType = {};
+    for (const t of src) {
+      const s = storeLabel(t);
+      (byStore[s] ||= { name: s, n: 0, c: {} }).n++;
+      byStore[s].c[t.type1] = (byStore[s].c[t.type1] || 0) + 1;
+      byType[t.type1] = (byType[t.type1] || 0) + 1;
+    }
+    const stores = Object.values(byStore).sort((a, b) => b.n - a.n).slice(0, 20);
+    const types = Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([k]) => k).slice(0, 10);
+    const data = [];
+    let max = 1;
+    stores.forEach((s, yi) => types.forEach((ty, xi) => { const v = s.c[ty] || 0; if (v > max) max = v; data.push([xi, yi, v || null]); }));
+    // Ô đậm thì chữ trắng, ô nhạt chữ đen - số luôn đọc được
+    const items = data.map((d) => ({ value: d, label: { color: d[2] && d[2] / max > 0.5 ? '#fff' : '#14181C' } }));
+    return { stores, types, data: items, max };
+  }, [all, f, noSpam, storeLabel, inGeo]);
+  const heatOption = useMemo(() => ({
+    animationDuration: 700,
+    grid: { left: 150, right: 12, top: 8, bottom: 84 },
+    tooltip: { ...TIP, trigger: 'item', formatter: (p) => '<b>' + heat.stores[p.value[1]].name + '</b><br/>' + heat.types[p.value[0]] + ': <b>' + (p.value[2] || 0) + '</b> khiếu nại' },
+    xAxis: { type: 'category', data: heat.types, position: 'bottom', ...AXIS_STYLE, axisLine: { show: false }, splitArea: { show: false },
+      axisLabel: { ...AXIS_STYLE.axisLabel, interval: 0, rotate: 32, width: 110, overflow: 'truncate', color: INK.txt } },
+    yAxis: { type: 'category', data: heat.stores.map((s) => s.name), inverse: true, ...AXIS_STYLE, axisLine: { show: false },
+      axisLabel: { ...AXIS_STYLE.axisLabel, color: INK.txt, width: 138, overflow: 'truncate' } },
+    visualMap: { show: false, min: 0, max: heat.max, inRange: { color: ['#FBF3E4', '#EFD39C', '#D9A23F', '#B07D2B', '#6E4A14'] } },
+    series: [{
+      type: 'heatmap', data: heat.data,
+      label: { show: true, fontSize: 11, fontWeight: 700, fontFamily: FONT, formatter: (p) => (p.value[2] ? p.value[2] : '') },
+      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 5 },
+      emphasis: { itemStyle: { borderColor: INK.txt, borderWidth: 1.5 } },
+    }],
+  }), [heat]);
 
   const storeRows = useMemo(() => {
     const m = {};
@@ -4859,6 +4911,16 @@ function CSSection({ cur, cmpSales, range, cmpRange, cmpLabel, storesMeta, csSto
             table={(
               <table><thead><tr><th>Lỗi cụ thể</th><th className="r">Số phiếu</th></tr></thead>
                 <tbody>{type2.map((r) => <tr key={r.name}><td>{r.name}</td><td className="r">{r.n}</td></tr>)}</tbody></table>
+            )} />
+        </div>
+        <div className="c12">
+          <ChartCard title="Bản đồ lỗi — chi nhánh × loại lỗi" sub="Số khiếu nại trong từng ô, càng đậm càng nhiều · top 20 chi nhánh × top 10 loại lỗi · bấm ô để lọc"
+            height={Math.max(260, heat.stores.length * 30 + 100)} option={heat.stores.length ? heatOption : null}
+            empty={!heat.stores.length ? 'Chưa có khiếu nại gắn chi nhánh và loại lỗi.' : null}
+            onClick={(p) => { if (!p.value) return; setF((x) => ({ ...x, store: heat.stores[p.value[1]].name, type1: heat.types[p.value[0]] })); }}
+            table={(
+              <table><thead><tr><th>Chi nhánh</th>{heat.types.map((t) => <th key={t} className="r">{t}</th>)}<th className="r">Tổng</th></tr></thead>
+                <tbody>{heat.stores.map((s) => <tr key={s.name}><td>{s.name}</td>{heat.types.map((t) => <td key={t} className="r">{s.c[t] || '—'}</td>)}<td className="r"><b>{s.n}</b></td></tr>)}</tbody></table>
             )} />
         </div>
         <div className="c6">
@@ -5122,7 +5184,7 @@ function TicketPage({ data }) {
             <label className={cls('upl-box', drag && 'drag')} style={busy ? { opacity: 0.6, pointerEvents: 'none' } : null}
               onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
               onDrop={(e) => { e.preventDefault(); setDrag(false); run(e.dataTransfer.files); }}>
-              <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files; e.target.value = ''; run(f); }} />
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = [...e.target.files]; e.target.value = ''; run(f); }} />
               <Ic.up size={22} style={{ margin: '0 auto 8px', color: 'var(--brand)' }} />
               <div style={{ fontWeight: 600 }}>Bấm để chọn hoặc kéo thả file Export Ticket (.xlsx)</div>
               <div className="hint">Cần các cột: ID phiếu ghi, Thời điểm tạo, Phân loại Ticket, Type Level 1/2, Cửa hàng, Khu vực… · phân tích xem ở mục Customer Service trong Summary và Weekly</div>
