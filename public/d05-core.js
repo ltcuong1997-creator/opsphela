@@ -323,6 +323,9 @@ function daySummary(date, dayDocs) {
     s.stores[d.storeId] = {
       name: d.storeName, revenue: d.revenue, bills: d.bills, quantity: d.quantity, commission: d.commission || 0,
       ...etSplit(d.sources),
+      // Từng nguồn đơn của cửa hàng (doanh thu trước VAT + TC) - để lọc nguồn đơn theo
+      // miền / AM / DM / chi nhánh. Tên nguồn lấy ở sources{} cấp ngày.
+      src: Object.fromEntries(Object.entries(d.sources || {}).map(([k, v]) => [k, { revenue: v.revenue, bills: v.bills || 0 }])),
     };
     // Theo giờ: hours = doanh thu (trước VAT), hourBills = TC. Ngày nạp trước khi có giờ thì bỏ trống.
     const hrs = Object.entries(d.hours || {});
