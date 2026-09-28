@@ -1913,7 +1913,12 @@ function zoneAgg(sum, meta, dim, zone) {
 /* Mục "Zone AM/DM": chọn 1 AM hoặc 1 DM -> số của cả zone và của từng chi nhánh trong
    zone, luôn so với CÙNG KỲ THÁNG TRƯỚC, kèm bảng chi nhánh đang giảm và lý do
    (giảm do TC hay do AOV). */
-function ZoneSection({ cur, mom, meta, momRange, range }) {
+/* Kỳ so sánh cho mục Zone / Báo cáo chi nhánh: Summary so với cùng kỳ tháng trước
+   (24/09 ghép 24/08), Weekly so với tuần trước (cùng thứ, lùi 7 ngày). */
+const CMP_MOM = { long: 'cùng kỳ tháng trước', Long: 'Cùng kỳ tháng trước', abbr: 'CKTT', near: 'cùng kỳ', Near: 'Cùng kỳ', day: 'cùng ngày tháng trước', back: monthBack };
+const CMP_WOW = { long: 'tuần trước', Long: 'Tuần trước', abbr: 'TT', near: 'tuần trước', Near: 'Tuần trước', day: 'cùng thứ tuần trước', back: (k) => dAdd(k, -7) };
+
+function ZoneSection({ cur, mom, meta, momRange, range, cmp: C = CMP_MOM }) {
   const [dim, setDim] = useState('am');
   const names = useMemo(() => {
     const set = new Set();
@@ -1942,7 +1947,7 @@ function ZoneSection({ cur, mom, meta, momRange, range }) {
     .sort((a, b) => a.gRev - b.gRev);
 
   const money2 = (v) => money(v) + ' đ';
-  const cmp = { deltaLabel: 'vs cùng kỳ tháng trước', noPrevHint: 'chưa có số cùng kỳ tháng trước' };
+  const cmp = { deltaLabel: 'vs ' + C.long, noPrevHint: 'chưa có số ' + C.long };
   const delta = (g) => <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td>;
   const T = now.total, P = before ? before.total : {};
 
@@ -1977,17 +1982,17 @@ function ZoneSection({ cur, mom, meta, momRange, range }) {
       <div className="dash">
         <div className="c7">
           <ChartCard
-            title="ADS từng chi nhánh" sub="Cột nâu là kỳ này, cột xám là cùng kỳ tháng trước" height={barCardH(rows.length, 30, 260, 460)}
+            title="ADS từng chi nhánh" sub={`Cột nâu là kỳ này, cột xám là ${C.long}`} height={barCardH(rows.length, 30, 260, 460)}
             option={cmpBarOption(rows, {
               value: (r) => r.ads, base: (r) => (r.prev ? r.prev.ads : 0),
-              valueName: 'ADS kỳ này', baseName: 'Cùng kỳ tháng trước', labelWidth: 108,
+              valueName: 'ADS kỳ này', baseName: C.Long, labelWidth: 108,
             })}
             empty={!rows.length ? 'Zone chưa có dữ liệu.' : null}
             table={(
               <table>
-                <thead><tr><th>Chi nhánh</th><th className="r">Doanh thu</th><th className="r">vs CKTT</th>
-                  <th className="r">TC</th><th className="r">vs CKTT</th><th className="r">AOV</th><th className="r">vs CKTT</th>
-                  <th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">ADS</th><th className="r">vs CKTT</th></tr></thead>
+                <thead><tr><th>Chi nhánh</th><th className="r">Doanh thu</th><th className="r">vs {C.abbr}</th>
+                  <th className="r">TC</th><th className="r">vs {C.abbr}</th><th className="r">AOV</th><th className="r">vs {C.abbr}</th>
+                  <th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">ADS</th><th className="r">vs {C.abbr}</th></tr></thead>
                 <tbody>{rows.map((r) => (
                   <tr key={r.id}>
                     <td>{r.name}</td>
@@ -2006,7 +2011,7 @@ function ZoneSection({ cur, mom, meta, momRange, range }) {
         <div className="c5">
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-h">
-              <div><h3>Chi nhánh đang giảm</h3><p>So với cùng kỳ tháng trước · nhãn chỉ ra giảm do TC hay do AOV</p></div>
+              <div><h3>Chi nhánh đang giảm</h3><p>So với {C.long} · nhãn chỉ ra giảm do TC hay do AOV</p></div>
             </div>
             {!down.length ? <div className="empty">Không chi nhánh nào giảm.</div> : (
               <div className="scroll-x">
@@ -2074,7 +2079,7 @@ function rankOf(sum, id, keep) {
 
 /* Một chỉ số theo từng ngày: kỳ này (nâu) và cùng kỳ tháng trước (xám gạch), ghép ngày
    24/09 với 24/08 bằng monthBack - không ghép theo thứ tự nên tháng ngắn/dài vẫn đúng ngày. */
-function cmpDayOption(dayKeys, cur, prev, { field, name, fmt = unit, area, extra }) {
+function cmpDayOption(dayKeys, cur, prev, { field, name, fmt = unit, area, extra, cmp: C = CMP_MOM }) {
   const v = (m, k) => (m[k] && m[k][field] != null && m[k][field] !== 0 ? Math.round(m[k][field]) : null);
   return {
     ...ANIM,
@@ -2082,7 +2087,7 @@ function cmpDayOption(dayKeys, cur, prev, { field, name, fmt = unit, area, extra
     tooltip: {
       ...TIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: INK.axis, width: 1 } },
       formatter: (ps) => {
-        const k = dayKeys[ps[0].dataIndex], pk = monthBack(k);
+        const k = dayKeys[ps[0].dataIndex], pk = C.back(k);
         const a = v(cur, k), b = v(prev, pk), d = a != null && b ? pctDiff(a, b) : null;
         return `<b>${dFull(k)}</b> · ${wdOf(k)} <b>${a == null ? '—' : money(a)}</b><br/>`
           + `<span style="color:${INK.mute}">${dFull(pk)} · ${wdOf(pk)}</span> <b>${b == null ? '—' : money(b)}</b>`
@@ -2100,9 +2105,9 @@ function cmpDayOption(dayKeys, cur, prev, { field, name, fmt = unit, area, extra
         data: dayKeys.map((k) => v(cur, k)),
       },
       {
-        name: 'Cùng kỳ tháng trước', type: 'line', smooth: 0.3, symbol: 'none', connectNulls: true,
+        name: C.Long, type: 'line', smooth: 0.3, symbol: 'none', connectNulls: true,
         lineStyle: { width: 2, color: '#B9B5AE', type: 'dashed' }, itemStyle: { color: '#B9B5AE' },
-        data: dayKeys.map((k) => v(prev, monthBack(k))),
+        data: dayKeys.map((k) => v(prev, C.back(k))),
       },
       ...(extra || []),
     ],
@@ -2112,7 +2117,7 @@ function cmpDayOption(dayKeys, cur, prev, { field, name, fmt = unit, area, extra
 /* Mục "Báo cáo chi nhánh": chọn 1 chi nhánh -> mọi chỉ số của chi nhánh đó, luôn so với
    CÙNG KỲ THÁNG TRƯỚC (01-24/09 so với 01-24/08). Số món đọc thêm d05ItemStores nên chỉ
    tải khi bấm, và giữ lại trong phiên để đổi chi nhánh không phải đọc lại. */
-function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays, focus }) {
+function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays, focus, cmp: C = CMP_MOM }) {
   const options = useMemo(() => Object.values(cur.byStore || {}).filter((s) => s.revenue > 0)
     .map((s) => ({ id: s.id, name: storeShort((meta[s.id] || {}).storeName || s.name), region: (meta[s.id] || {}).region || UNASSIGNED, city: (meta[s.id] || {}).city || '' }))
     .sort((a, b) => a.name.localeCompare(b.name, 'vi')), [cur, meta]);
@@ -2176,7 +2181,7 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
   if (!options.length || !now) return <div className="empty">Kỳ này chưa có chi nhánh nào có doanh thu.</div>;
 
   const P = before;
-  const cmp = { deltaLabel: 'vs cùng kỳ tháng trước', noPrevHint: 'chưa có số cùng kỳ tháng trước' };
+  const cmp = { deltaLabel: 'vs ' + C.long, noPrevHint: 'chưa có số ' + C.long };
   const cp = (v) => (hasPrev ? v : null);
   const money2 = (v) => money(v) + ' đ';
   const na = (v, f = money2) => (v == null ? '—' : f(v));
@@ -2211,7 +2216,7 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
     { name: 'Doanh thu ET', a: now.etRev, b: P.etRev },
     { name: 'Doanh thu D', a: now.dRev, b: P.dRev },
   ];
-  const chanOption = cmpBarOption(chanRows, { value: (r) => r.a, base: (r) => r.b || 0, valueName: 'Kỳ này', baseName: 'Cùng kỳ tháng trước', labelWidth: 86 });
+  const chanOption = cmpBarOption(chanRows, { value: (r) => r.a, base: (r) => r.b || 0, valueName: 'Kỳ này', baseName: C.Long, labelWidth: 86 });
 
   /* Theo thứ trong tuần: doanh thu TB mỗi ngày có bán */
   const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -2226,7 +2231,7 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
     yAxis: { type: 'value', ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
     series: [
       { name: 'Kỳ này', type: 'bar', barMaxWidth: 18, barGap: '20%', itemStyle: { color: BRAND_HEX, borderRadius: [4, 4, 0, 0] }, data: WD_ORDER.map((w) => Math.round(wdAvg(now, w))) },
-      { name: 'Cùng kỳ tháng trước', type: 'bar', barMaxWidth: 18, itemStyle: { color: '#DCD8D3', borderRadius: [4, 4, 0, 0] }, data: WD_ORDER.map((w) => Math.round(wdAvg(P, w))) },
+      { name: C.Long, type: 'bar', barMaxWidth: 18, itemStyle: { color: '#DCD8D3', borderRadius: [4, 4, 0, 0] }, data: WD_ORDER.map((w) => Math.round(wdAvg(P, w))) },
     ],
   };
 
@@ -2252,11 +2257,11 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
 
   const dayTarget = target ? target / rangeDays : 0;
   const revDayOption = cmpDayOption(dayKeys, now.byDate, P.byDate, {
-    field: 'revenue', name: 'Doanh thu', area: true,
+    field: 'revenue', name: 'Doanh thu', area: true, cmp: C,
     extra: dayTarget ? [{ name: 'Target/ngày', type: 'line', symbol: 'none', silent: true, lineStyle: { width: 1.5, type: 'dotted', color: SERIES[2] }, data: dayKeys.map(() => Math.round(dayTarget)) }] : null,
   });
-  const tcDayOption = cmpDayOption(dayKeys, now.byDate, P.byDate, { field: 'bills', name: 'TC', fmt: (v) => money(v) });
-  const aovDayOpt = cmpDayOption(dayKeys, now.byDate, P.byDate, { field: 'aov', name: 'AOV' });
+  const tcDayOption = cmpDayOption(dayKeys, now.byDate, P.byDate, { field: 'bills', name: 'TC', fmt: (v) => money(v), cmp: C });
+  const aovDayOpt = cmpDayOption(dayKeys, now.byDate, P.byDate, { field: 'aov', name: 'AOV', cmp: C });
 
   const byRegion = {};
   for (const o of options) (byRegion[o.region] ||= []).push(o);
@@ -2279,7 +2284,7 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
         <span className="hint">
           {[m.region, m.city, m.am && 'AM ' + m.am, m.dm && 'DM ' + m.dm].filter(Boolean).join(' · ') || 'Chưa gán miền / AM'}
           {' · '}so với {dFull(momRange.from)} – {dFull(momRange.to)}
-          {!hasPrev ? ' · chi nhánh chưa có số cùng kỳ tháng trước' : ''}
+          {!hasPrev ? ' · chi nhánh chưa có số ' + C.long : ''}
         </span>
       </div>
 
@@ -2298,26 +2303,26 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
       </div>
       <div className="kpi-row">
         <Kpi sm label="Tỉ trọng giao hàng (D)" value={na(now.dShare, pct1)}
-          hint={hasPrev && P.dShare != null ? `cùng kỳ ${pct1(P.dShare)} · ${now.dShare - P.dShare >= 0 ? '+' : ''}${dec1(now.dShare - P.dShare)} điểm` : null} />
+          hint={hasPrev && P.dShare != null ? `${C.near} ${pct1(P.dShare)} · ${now.dShare - P.dShare >= 0 ? '+' : ''}${dec1(now.dShare - P.dShare)} điểm` : null} />
         <Kpi sm label="Món / hoá đơn (UPT)" value={dec1(now.upt)} cur={now.upt} prev={cp(P.upt)} {...cmp} />
         <Kpi sm label="Hạng doanh thu toàn chuỗi" value={rankTxt(rk.chain)}
-          hint={rk.chainPrev ? `cùng kỳ ${rankTxt(rk.chainPrev)}` : 'chưa có hạng cùng kỳ'} />
+          hint={rk.chainPrev ? `${C.near} ${rankTxt(rk.chainPrev)}` : 'chưa có hạng ' + C.near} />
         <Kpi sm label={m.am ? 'Hạng trong zone AM ' + m.am : 'Hạng trong zone AM'} value={rankTxt(rk.am)}
-          hint={!m.am ? 'chưa gán AM' : rk.amPrev ? `cùng kỳ ${rankTxt(rk.amPrev)}` : 'chưa có hạng cùng kỳ'} />
+          hint={!m.am ? 'chưa gán AM' : rk.amPrev ? `${C.near} ${rankTxt(rk.amPrev)}` : 'chưa có hạng ' + C.near} />
       </div>
 
       <div className="dash">
         <div className="c8">
-          <ChartCard title="Doanh thu theo ngày" sub={`Đường nâu là kỳ này, đường xám là cùng ngày tháng trước${dayTarget ? ' · chấm xanh là target/ngày' : ''}`}
+          <ChartCard title="Doanh thu theo ngày" sub={`Đường nâu là kỳ này, đường xám là ${C.day}${dayTarget ? ' · chấm xanh là target/ngày' : ''}`}
             height={300} option={revDayOption}
             table={(
               <table>
-                <thead><tr><th>Ngày</th><th className="r">Doanh thu</th><th>Cùng kỳ</th><th className="r">Doanh thu</th><th className="r">Chênh lệch</th></tr></thead>
+                <thead><tr><th>Ngày</th><th className="r">Doanh thu</th><th>{C.Near}</th><th className="r">Doanh thu</th><th className="r">Chênh lệch</th></tr></thead>
                 <tbody>{dayKeys.map((k) => {
-                  const a = now.byDate[k], b = P.byDate[monthBack(k)];
+                  const a = now.byDate[k], b = P.byDate[C.back(k)];
                   return (
                     <tr key={k}><td>{dShort(k)} · {wdOf(k)}</td><td className="r">{a ? money2(a.revenue) : '—'}</td>
-                      <td>{dShort(monthBack(k))} · {wdOf(monthBack(k))}</td><td className="r">{b ? money2(b.revenue) : '—'}</td>
+                      <td>{dShort(C.back(k))} · {wdOf(C.back(k))}</td><td className="r">{b ? money2(b.revenue) : '—'}</td>
                       {delta(a && b ? pctDiff(a.revenue, b.revenue) : null)}</tr>
                   );
                 })}</tbody>
@@ -2328,7 +2333,7 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
           <ChartCard title="Kênh bán ET / D" sub="Tại chỗ + mang về so với giao hàng" height={300} option={chanOption}
             table={(
               <table>
-                <thead><tr><th>Kênh</th><th className="r">Kỳ này</th><th className="r">Cùng kỳ</th><th className="r">Chênh lệch</th></tr></thead>
+                <thead><tr><th>Kênh</th><th className="r">Kỳ này</th><th className="r">{C.Near}</th><th className="r">Chênh lệch</th></tr></thead>
                 <tbody>{chanRows.map((r) => (
                   <tr key={r.name}><td>{r.name}</td><td className="r">{money2(r.a)}</td><td className="r">{money2(r.b)}</td>{delta(pctDiff(r.a, r.b))}</tr>
                 ))}</tbody>
@@ -2336,10 +2341,10 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
             )} />
         </div>
         <div className="c6">
-          <ChartCard title="TC theo ngày" sub="Số hoá đơn mỗi ngày · kỳ này vs cùng kỳ tháng trước" height={260} option={tcDayOption} />
+          <ChartCard title="TC theo ngày" sub={`Số hoá đơn mỗi ngày · kỳ này vs ${C.long}`} height={260} option={tcDayOption} />
         </div>
         <div className="c6">
-          <ChartCard title="AOV theo ngày" sub="Giá trị TB mỗi hoá đơn · kỳ này vs cùng kỳ tháng trước" height={260} option={aovDayOpt} />
+          <ChartCard title="AOV theo ngày" sub={`Giá trị TB mỗi hoá đơn · kỳ này vs ${C.long}`} height={260} option={aovDayOpt} />
         </div>
         <div className="c6">
           <ChartCard title="Doanh thu TB theo thứ" sub="Trung bình mỗi ngày có bán, gom theo thứ trong tuần" height={260} option={wdOption} />
@@ -2352,12 +2357,12 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
         <div className="c12">
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-h">
-              <div><h3>So sánh đầy đủ với cùng kỳ tháng trước</h3>
+              <div><h3>So sánh đầy đủ với {C.long}</h3>
                 <p>{rangeLabel(range)} so với {rangeLabel(momRange)} · tỉ trọng so bằng điểm %, hạng so bằng số bậc</p></div>
             </div>
             <div className="scroll-x">
               <table className="tb">
-                <thead><tr><th>Chỉ số</th><th className="r">Kỳ này</th><th className="r">Cùng kỳ tháng trước</th><th className="r">Chênh lệch</th><th className="r">%</th></tr></thead>
+                <thead><tr><th>Chỉ số</th><th className="r">Kỳ này</th><th className="r">{C.Long}</th><th className="r">Chênh lệch</th><th className="r">%</th></tr></thead>
                 <tbody>{lines.map(([label, a, b, f, kind]) => {
                   const ok = a != null && b != null && hasPrev;
                   const diff = ok ? a - b : null;
@@ -2386,7 +2391,7 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-h">
               <div><h3>Món bán tại chi nhánh</h3>
-                <p>Số lượng từng món kỳ này vs cùng kỳ tháng trước · doanh thu món theo giá Fabi (gồm VAT)</p></div>
+                <p>Số lượng từng món kỳ này vs {C.long} · doanh thu món theo giá Fabi (gồm VAT)</p></div>
               <div className="sp">
                 {items.key !== rkey && (
                   <button className="btn sm pri" disabled={items.busy} onClick={loadItems}>{items.busy ? 'Đang đọc…' : 'Xem món bán'}</button>
@@ -2394,7 +2399,7 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
               </div>
             </div>
             {items.err ? <div className="banner">{items.err}</div> : null}
-            {!itemRows ? <div className="empty">Bấm "Xem món bán" để đọc số món của kỳ này và cùng kỳ tháng trước (đọc một lần, đổi chi nhánh không phải tải lại).</div>
+            {!itemRows ? <div className="empty">Bấm "Xem món bán" để đọc số món của kỳ này và {C.long} (đọc một lần, đổi chi nhánh không phải tải lại).</div>
               : !itemRows.length ? <div className="empty">Chi nhánh chưa có số món trong kỳ.</div> : (
                 <>
                   <div className="kpi-row" style={{ padding: '0 16px' }}>
@@ -2409,8 +2414,8 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
                   </div>
                   <div className="scroll-x" style={{ maxHeight: 460, overflowY: 'auto' }}>
                     <table className="tb">
-                      <thead><tr><th>#</th><th>Món</th><th>Nhóm</th><th className="r">SL kỳ này</th><th className="r">SL cùng kỳ</th><th className="r">vs CKTT</th>
-                        <th className="r">ADQ</th><th className="r">Tỉ trọng SL</th><th className="r">Doanh thu</th><th className="r">Doanh thu cùng kỳ</th></tr></thead>
+                      <thead><tr><th>#</th><th>Món</th><th>Nhóm</th><th className="r">SL kỳ này</th><th className="r">SL {C.near}</th><th className="r">vs {C.abbr}</th>
+                        <th className="r">ADQ</th><th className="r">Tỉ trọng SL</th><th className="r">Doanh thu</th><th className="r">Doanh thu {C.near}</th></tr></thead>
                       <tbody>{itemRows.map((r, i) => (
                         <tr key={r.name}>
                           <td style={{ color: INK.mute }}>{i + 1}</td><td>{r.name}</td><td>{r.group}</td>
@@ -2432,68 +2437,356 @@ function StoreSection({ cur, mom, meta, range, momRange, targetByStore, yearDays
   );
 }
 
-function OverviewPage({ data }) {
-  const { cur, prev, range, storesMeta, targets } = data;
-  const [filter, setFilter] = useState({});
+/* =====================================================================
+   KHỐI BÁO CÁO DÙNG CHUNG (Summary + Weekly)
+   ---------------------------------------------------------------------
+   Cùng số, cùng biểu đồ ở cả hai trang. Trang chỉ đưa vào lát cắt đang lọc (slice),
+   kỳ liền trước (prevSlice), target từng chi nhánh của kỳ và hàm bật/tắt bộ lọc;
+   `word` đổi chữ cho đúng trang ("kỳ này"/"tuần này", "kỳ trước"/"tuần trước").
+===================================================================== */
+const WORD_RANGE = { now: 'kỳ này', Now: 'Kỳ này', prev: 'kỳ trước' };
+const WORD_WEEK = { now: 'tuần này', Now: 'Tuần này', prev: 'tuần trước' };
+const moneyD = (v) => money(v) + ' đ';
+const swatchOf = (c) => <i className="sw" style={{ background: c }} />;
+
+function storeRowsOf(slice, meta, targetByStore) {
+  return slice.stores.map((st) => {
+    const m = meta[st.id] || {};
+    return {
+      id: st.id, name: storeShort(m.storeName || st.name), region: m.region || UNASSIGNED, city: m.city || UNASSIGNED,
+      am: m.am || '', revenue: adjRevenue(st.revenue, st.commission), bills: st.bills, target: targetByStore[st.id] || 0,
+    };
+  }).sort((a, b) => b.revenue - a.revenue);
+}
+
+/* Ba đường AOV / AOV-ET / AOV-D theo 12 tháng, đọc từ dữ liệu cả năm (tải nền).
+   Bộ lọc đang bật cũng áp vào đây nên xem được đường của riêng một miền/tỉnh/AM. */
+function AovYearCard({ yearDays, keep, busy, year, geoFilter, height = 330 }) {
+  const yearRows = useMemo(() => monthlyAov(yearDays, keep), [yearDays, keep]);
+  const yearHasData = yearRows.some((r) => r.aov != null);
+  const option = useMemo(() => {
+    const line = (name, key, color, dash) => ({
+      name, type: 'line', smooth: 0.25, symbol: 'circle', symbolSize: 6, connectNulls: true,
+      lineStyle: { width: 2.2, color, type: dash || 'solid' }, itemStyle: { color },
+      data: yearRows.map((r) => (r[key] == null ? null : Math.round(r[key]))),
+    });
+    return {
+      ...ANIM,
+      grid: { left: 56, right: 18, top: 28, bottom: 28 },
+      tooltip: {
+        ...TIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: INK.axis, width: 1 } },
+        formatter: (ps) => `<b>${MONTHS[ps[0].dataIndex]}</b><br/>` +
+          ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value == null ? '—' : money(p.value) + ' đ'}</b>`).join('<br/>'),
+      },
+      legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 3, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+      xAxis: { type: 'category', data: MONTHS.map((m) => m.replace('Tháng ', 'T')), boundaryGap: false, ...AXIS_STYLE, splitLine: { show: false } },
+      yAxis: { type: 'value', scale: true, ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
+      series: [
+        line('AOV chung', 'aov', BRAND_HEX),
+        line('AOV-ET', 'aovET', SERIES[0], 'dashed'),
+        line('AOV-D', 'aovD', SERIES[2], 'dashed'),
+      ],
+    };
+  }, [yearRows]);
+  return (
+    <ChartCard
+      title={`Ba đường AOV theo tháng — năm ${year}`}
+      sub={geoFilter ? 'Đang vẽ theo đúng lát cắt đang lọc' : 'Toàn chuỗi · mỗi điểm là một tháng'}
+      height={height}
+      option={option}
+      empty={busy ? 'Đang tải dữ liệu cả năm…' : (!yearHasData ? 'Chưa có dữ liệu năm này.' : null)}
+      table={(
+        <table>
+          <thead><tr><th>Tháng</th><th className="r">AOV</th><th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">Hoá đơn</th></tr></thead>
+          <tbody>{yearRows.map((r) => (
+            <tr key={r.month}><td>{MONTHS[r.month - 1]}</td>
+              <td className="r">{r.aov == null ? '—' : moneyD(r.aov)}</td>
+              <td className="r">{r.aovET == null ? '—' : moneyD(r.aovET)}</td>
+              <td className="r">{r.aovD == null ? '—' : moneyD(r.aovD)}</td>
+              <td className="r">{money(r.bills)}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
+    />
+  );
+}
+
+/* Mục Target: tiến độ từng chi nhánh (thấp -> cao để lộ ngay chi nhánh đang đuối)
+   và tỉnh/TP doanh thu vs target. */
+function TargetBlock({ slice, meta, targetByStore, toggle }) {
+  const storeRows = useMemo(() => storeRowsOf(slice, meta, targetByStore), [slice, meta, targetByStore]);
+  const progressRows = useMemo(() => storeRows
+    .filter((r) => r.target > 0)
+    .map((r) => ({ id: r.id, name: r.name, sub: unit(r.revenue) + ' / ' + unit(r.target) + ' đ', value: pct1(r.revenue / r.target * 100), bar: r.revenue / r.target * 100 }))
+    .sort((a, b) => a.bar - b.bar), [storeRows]);
+
+  /* Nhấn mạnh 1 màu + xám, không phải 2 chuỗi đua màu */
+  const cityRows = useMemo(() => {
+    const agg = {};
+    for (const st of slice.stores) {
+      const c = (meta[st.id] || {}).city || UNASSIGNED;
+      (agg[c] ||= { name: c, revenue: 0, target: 0 }).revenue += adjRevenue(st.revenue, st.commission);
+    }
+    for (const [id, tg] of Object.entries(targetByStore)) {
+      if (!slice.keep(id)) continue;
+      const c = (meta[id] || {}).city || UNASSIGNED;
+      (agg[c] ||= { name: c, revenue: 0, target: 0 }).target += tg;
+    }
+    return Object.values(agg).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+  }, [slice, meta, targetByStore]);
+  const cityOption = useMemo(() => cmpBarOption(cityRows, {
+    value: (r) => r.revenue, base: (r) => r.target,
+    valueName: 'Doanh thu', baseName: 'Target', labelWidth: 84,
+  }), [cityRows]);
+
+  return (
+    <div className="dash">
+      <div className="c5">
+        <Leaderboard
+          title="Tiến độ target theo chi nhánh" sub="Đạt% = doanh thu / target · thấp nhất lên trước"
+          tag={progressRows.length ? `${progressRows.length} chi nhánh` : null}
+          rows={progressRows.slice(0, 10)} onClick={(r) => toggle('store', r.id)}
+        />
+      </div>
+
+      <div className="c7">
+        <ChartCard
+          title="Tỉnh/TP: doanh thu vs target" sub="Top 10 theo doanh thu · cột xám = target · bấm để lọc" height={barCardH(cityRows.length, 30, 260, 400)}
+          option={cityOption}
+          onClick={(p) => { const r = cityRows[cityRows.length - 1 - p.dataIndex]; if (r) toggle('city', r.name); }}
+          empty={!cityRows.length ? 'Chưa có dữ liệu.' : null}
+          table={(
+            <table>
+              <thead><tr><th>Tỉnh/TP</th><th className="r">Doanh thu</th><th className="r">Target</th><th className="r">Đạt</th></tr></thead>
+              <tbody>{cityRows.map((r) => (
+                <tr key={r.name}><td>{r.name}</td><td className="r">{moneyD(r.revenue)}</td>
+                  <td className="r">{r.target ? moneyD(r.target) : '—'}</td>
+                  <td className="r">{r.target ? pct1(r.revenue / r.target * 100) : '—'}</td></tr>
+              ))}</tbody>
+            </table>
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* Mục Cơ cấu doanh thu: miền · nguồn đơn · PTTT · nhóm món, rồi thẻ "Món theo chi nhánh".
+   Nguồn đơn / PTTT / món chỉ có ở cấp toàn chuỗi nên gắn nhãn khi đang lọc địa lý. */
+function MixBlock({ cur, slice, meta, targetByStore, geoFilter, range, toggle, word }) {
+  const regionRows = useMemo(() => {
+    const agg = {};
+    for (const st of slice.stores) {
+      const rg = (meta[st.id] || {}).region || UNASSIGNED;
+      (agg[rg] ||= { name: rg, revenue: 0, bills: 0, target: 0, stores: 0 });
+      agg[rg].revenue += adjRevenue(st.revenue, st.commission);
+      agg[rg].bills += st.bills;
+      agg[rg].stores++;
+    }
+    for (const [id, tg] of Object.entries(targetByStore)) {
+      if (!slice.keep(id)) continue;
+      const rg = (meta[id] || {}).region || UNASSIGNED;
+      (agg[rg] ||= { name: rg, revenue: 0, bills: 0, target: 0, stores: 0 }).target += tg;
+    }
+    return Object.values(agg).sort((a, b) => b.revenue - a.revenue);
+  }, [slice, meta, targetByStore]);
+
+  const regionOption = useMemo(() => ({
+    ...ANIM,
+    tooltip: { ...TIP, trigger: 'item', formatter: (p) => `<b>${p.name}</b><br/>Doanh thu <b>${money(p.value)} đ</b><br/>Tỉ trọng <b>${p.percent}%</b><br/>${p.data.stores} chi nhánh` },
+    legend: { bottom: 0, left: 'center', icon: 'circle', itemWidth: 9, itemHeight: 9, textStyle: { color: INK.mute, fontSize: 11.5, fontFamily: FONT } },
+    series: [{
+      type: 'pie', radius: ['52%', '76%'], center: ['50%', '44%'], avoidLabelOverlap: true,
+      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 }, // khe 2px giữa các miếng
+      label: { show: true, formatter: (p) => `${p.name}\n${unit(p.value)}`, color: INK.txt, fontSize: 11, fontFamily: FONT, lineHeight: 15 },
+      labelLine: { length: 8, length2: 8, lineStyle: { color: INK.axis } },
+      data: regionRows.map((r) => ({ name: r.name, value: Math.round(r.revenue), stores: r.stores, itemStyle: { color: REGION_COLOR[r.name] || INK.axis } })),
+    }],
+  }), [regionRows]);
+
+  /* Nguồn đơn (toàn chuỗi) - gộp đuôi vào "Khác", không chế thêm màu */
+  const sourceRows = useMemo(() => {
+    const all = Object.values(cur.bySource || {}).filter((x) => x.revenue > 0).sort((a, b) => b.revenue - a.revenue);
+    const top = all.slice(0, 5);
+    const rest = all.slice(5);
+    if (rest.length) top.push({ name: 'Khác', revenue: rest.reduce((a, x) => a + x.revenue, 0), bills: rest.reduce((a, x) => a + x.bills, 0), rest: rest.length });
+    return top;
+  }, [cur]);
+  const sourceOption = useMemo(() => ({
+    ...ANIM,
+    tooltip: { ...TIP, trigger: 'item', formatter: (p) => `<b>${p.name}</b><br/>Doanh thu <b>${money(p.value)} đ</b><br/>Tỉ trọng <b>${p.percent}%</b>` },
+    legend: { bottom: 0, left: 'center', icon: 'circle', itemWidth: 9, itemHeight: 9, itemGap: 10, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
+    series: [{
+      type: 'pie', radius: ['52%', '76%'], center: ['50%', '42%'],
+      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 },
+      label: { show: true, formatter: (p) => unit(p.value), color: INK.txt, fontSize: 11, fontFamily: FONT },
+      labelLine: { length: 6, length2: 8, lineStyle: { color: INK.axis } },
+      data: sourceRows.map((r, i) => ({ name: r.name, value: Math.round(r.revenue), itemStyle: { color: r.name === 'Khác' ? INK.axis : SERIES[i] } })),
+    }],
+  }), [sourceRows]);
+
+  /* PTTT (toàn chuỗi): cột ngang vì các giá trị hay sát nhau */
+  const payRows = useMemo(() => Object.values(cur.byPayment || {}).filter((x) => x.revenue > 0)
+    .sort((a, b) => a.revenue - b.revenue).slice(-6), [cur]);
+  const payOption = useMemo(() => ({
+    ...ANIM,
+    grid: { left: 112, right: 58, top: 10, bottom: 8 },
+    tooltip: { ...TIP, trigger: 'item', formatter: (p) => `<b>${p.name}</b><br/>Doanh thu <b>${money(p.value)} đ</b>` },
+    xAxis: { type: 'value', show: false },
+    yAxis: { type: 'category', data: payRows.map((r) => r.name), ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false },
+      axisLabel: { ...AXIS_STYLE.axisLabel, color: INK.txt, fontSize: 11.5, width: 100, overflow: 'truncate' } },
+    series: [{
+      type: 'bar', barWidth: 13, itemStyle: { color: SERIES[0], borderRadius: [0, 4, 4, 0] },
+      label: { show: true, position: 'right', distance: 8, color: INK.txt, fontSize: 11, fontWeight: 600, fontFamily: FONT, formatter: (p) => unit(p.value) },
+      data: payRows.map((r) => Math.round(r.revenue)),
+    }],
+  }), [payRows]);
+
+  /* Tên món -> các khoá món trong d05Days (mã món), và số ngày trong kỳ có dữ liệu món */
+  const itemNames = useMemo(() => Object.values(cur.byItem || {})
+    .sort((a, b) => b.revenue - a.revenue).map((x) => x.name), [cur]);
+  const keysByName = useMemo(() => {
+    const m = {};
+    for (const d of Object.values(cur.days || {})) {
+      for (const [k, it] of Object.entries(d.items || {})) {
+        const set = (m[it.name] ||= []);
+        if (!set.includes(k)) set.push(k);
+      }
+    }
+    return m;
+  }, [cur]);
+  const itemDayCount = useMemo(() => Object.values(cur.days || {})
+    .filter((d) => d.items && Object.keys(d.items).length).length, [cur]);
+
+  /* Cây: nhóm món -> món (toàn chuỗi) */
+  const treeData = useMemo(() => {
+    const groups = {};
+    for (const it of Object.values(cur.byItem || {})) {
+      if (!it.revenue) continue;
+      const g = it.group || 'Khác';
+      (groups[g] ||= []).push({ name: it.name, value: Math.round(it.revenue) });
+    }
+    return Object.entries(groups)
+      .map(([g, children]) => ({
+        name: g,
+        value: children.reduce((a, c) => a + c.value, 0),
+        children: children.sort((a, b) => b.value - a.value).slice(0, 12),
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8)
+      .map((g, i) => ({ ...g, itemStyle: { color: PASTEL[i] } }));
+  }, [cur]);
+  /* Ngưỡng hiện nhãn trong ô cây theo tổng doanh thu: kỳ ngắn (1 tuần) vẫn có nhãn */
+  const treeLabelMin = treeData.reduce((a, g) => a + g.value, 0) * 0.008;
+  const treeOption = useMemo(() => ({
+    ...ANIM,
+    tooltip: { ...TIP, formatter: (p) => `<b>${p.name}</b><br/>Doanh thu <b>${money(p.value)} đ</b>` },
+    series: [{
+      type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: false },
+      top: 6, bottom: 6, left: 6, right: 6,
+      itemStyle: { borderColor: '#fff', borderWidth: 2, gapWidth: 2 },
+      upperLabel: { show: true, height: 20, color: INK.txt, fontSize: 11, fontWeight: 700, fontFamily: FONT },
+      label: { fontSize: 11, fontFamily: FONT, color: INK.txt, formatter: (p) => (p.value > treeLabelMin ? `${p.name}\n${unit(p.value)}` : '') },
+      levels: [
+        { itemStyle: { borderWidth: 0, gapWidth: 3 } },
+        { colorSaturation: [0.85, 1], itemStyle: { gapWidth: 2, borderColorSaturation: 0.5 } },
+      ],
+      data: treeData,
+    }],
+  }), [treeData, treeLabelMin]);
+  const treeTotal = treeData.reduce((a, x) => a + x.value, 0) || 1;
+
+  return (
+    <>
+      <div className="dash">
+        <div className="c4">
+          <ChartCard
+            title="Cơ cấu theo miền" sub="Tỉ trọng doanh thu · bấm để lọc" height={280}
+            option={regionOption}
+            onClick={(p) => toggle('region', p.name)}
+            table={(
+              <table>
+                <thead><tr><th>Miền</th><th className="r">Doanh thu</th><th className="r">Target</th><th className="r">Đạt</th></tr></thead>
+                <tbody>{regionRows.map((r) => (
+                  <tr key={r.name}><td>{swatchOf(REGION_COLOR[r.name] || INK.axis)}{r.name}</td>
+                    <td className="r">{moneyD(r.revenue)}</td><td className="r">{r.target ? moneyD(r.target) : '—'}</td>
+                    <td className="r">{r.target ? pct1(r.revenue / r.target * 100) : '—'}</td></tr>
+                ))}</tbody>
+              </table>
+            )}
+          />
+        </div>
+
+        <div className="c4">
+          <ChartCard
+            title="Theo nguồn đơn" sub="Tại chỗ / mang về / app giao hàng" height={280}
+            tag={geoFilter ? 'toàn chuỗi' : null}
+            option={sourceOption}
+            empty={!sourceRows.length ? `${word.Now} chưa có dữ liệu nguồn đơn.` : null}
+            table={(
+              <table>
+                <thead><tr><th>Nguồn</th><th className="r">Doanh thu</th><th className="r">Hoá đơn</th></tr></thead>
+                <tbody>{sourceRows.map((r, i) => (
+                  <tr key={r.name}><td>{swatchOf(r.name === 'Khác' ? INK.axis : SERIES[i])}{r.name}</td>
+                    <td className="r">{moneyD(r.revenue)}</td><td className="r">{money(r.bills || 0)}</td></tr>
+                ))}</tbody>
+              </table>
+            )}
+          />
+        </div>
+
+        <div className="c4">
+          <ChartCard
+            title="Phương thức thanh toán" sub="Top 6 theo doanh thu" height={280}
+            tag={geoFilter ? 'toàn chuỗi' : null}
+            option={payOption}
+            empty={!payRows.length ? `${word.Now} chưa có dữ liệu PTTT.` : null}
+            table={(
+              <table>
+                <thead><tr><th>PTTT</th><th className="r">Doanh thu</th></tr></thead>
+                <tbody>{[...payRows].reverse().map((r) => (
+                  <tr key={r.name}><td>{swatchOf(SERIES[0])}{r.name}</td><td className="r">{moneyD(r.revenue)}</td></tr>
+                ))}</tbody>
+              </table>
+            )}
+          />
+        </div>
+
+        <div className="c12">
+          <ChartCard
+            title="Cơ cấu món bán" sub="Nhóm món → món, diện tích theo doanh thu" height={320}
+            tag={geoFilter ? 'toàn chuỗi' : null}
+            option={treeOption}
+            empty={!treeData.length ? 'Chưa có dữ liệu món.' : null}
+            table={(
+              <table>
+                <thead><tr><th>Nhóm món</th><th className="r">Doanh thu</th><th className="r">Tỉ trọng</th></tr></thead>
+                <tbody>{treeData.map((g, i) => (
+                  <tr key={g.name}><td>{swatchOf(PASTEL[i])}{g.name}</td><td className="r">{moneyD(g.value)}</td>
+                    <td className="r">{pct1(g.value / treeTotal * 100)}</td></tr>
+                ))}</tbody>
+              </table>
+            )}
+          />
+        </div>
+      </div>
+
+      <div className="dash">
+        <div className="c12">
+          <ItemStoreCard range={range} itemNames={itemNames} keysByName={keysByName} meta={meta}
+            keep={slice.keep} dayCount={itemDayCount} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* Mục Chi nhánh: bản đồ, top theo doanh thu và các bảng xếp hạng.
+   boards chọn bảng nào hiện: high / low (doanh thu), up / down (tăng trưởng so kỳ trước). */
+function BranchBlock({ slice, sliceAll, prevSlice, meta, targetByStore, toggle, word, boards = ['high', 'low', 'down'] }) {
   const mapReady = useVnMap();
 
-  const meta = useMemo(() => {
-    const m = {};
-    for (const s of storesMeta || []) m[s.id] = s;
-    return m;
-  }, [storesMeta]);
-
-  const slice = useMemo(() => sliceOf(cur, meta, filter), [cur, meta, filter]);
-  const sliceAll = useMemo(() => sliceOf(cur, meta, {}), [cur, meta]);
-  const prevSlice = useMemo(() => sliceOf(prev, meta, filter), [prev, meta, filter]);
-  // Cùng kỳ tháng trước (01-24/09 -> 01-24/08) - cột thứ 3 của các biểu đồ ADS
-  const momSlice = useMemo(() => sliceOf(data.mom || { byStore: {}, days: {} }, meta, filter), [data.mom, meta, filter]);
-  const geoFilter = !!(filter.region || filter.prov || filter.city || filter.am || filter.store);
-
-  /* ---- Target của kỳ đang chọn ----
-     Kỳ có thể là vài ngày hoặc vắt qua nhiều tháng, nên target mỗi tháng được chia theo
-     số ngày của tháng đó nằm trong kỳ: target tháng × (số ngày trong kỳ / số ngày cả tháng). */
-  const rangeDays = dDiff(range.from, range.to) + 1;
-  const monthShare = useMemo(() => {
-    const share = {};
-    for (let k = monthStart(range.from); k <= range.to; k = dAdd(monthEnd(k), 1)) {
-      const full = dDiff(monthStart(k), monthEnd(k)) + 1;
-      const from = k > range.from ? k : range.from;
-      const to = monthEnd(k) < range.to ? monthEnd(k) : range.to;
-      if (to < from) continue;
-      share[k.slice(0, 7)] = (dDiff(from, to) + 1) / full;
-    }
-    return share;
-  }, [range.from, range.to]);
-  const targetByStore = useMemo(() => {
-    const m = {};
-    for (const t of targets || []) {
-      const p = monthShare[t.year + '-' + pad2(t.month)];
-      if (!p) continue;
-      m[t.storeId] = (m[t.storeId] || 0) + (t.target || 0) * p;
-    }
-    return m;
-  }, [targets, monthShare]);
-  const targetTotal = useMemo(() => Object.entries(targetByStore)
-    .filter(([id]) => slice.keep(id)).reduce((a, [, v]) => a + v, 0), [targetByStore, slice]);
-
-  const achievePct = targetTotal ? slice.revenue / targetTotal * 100 : null;
-  /* FC = ADS × số chi nhánh đang có doanh thu × số ngày của kỳ (dự báo tới hết kỳ đã chọn) */
-  const fcPct = targetTotal ? (slice.ads * slice.nStores * rangeDays) / targetTotal * 100 : null;
-
-  /* ---- Chuỗi ngày trong tháng ---- */
-  const dayKeys = useMemo(() => {
-    const out = [];
-    for (let k = range.from; k <= range.to; k = dAdd(k, 1)) out.push(k);
-    return out;
-  }, [range.from, range.to]);
-  const dayRevenue = dayKeys.map((k) => (slice.byDate[k] ? slice.byDate[k].revenue : 0));
-  const dayTarget = targetTotal ? targetTotal / rangeDays : 0;
-
-  const toggle = useCallback((key, value) => setFilter((f) => ({ ...f, [key]: f[key] === value ? null : value })), []);
-  const onRegionClick = useCallback((p) => toggle('region', p.name), [toggle]);
-
-  /* ---- Bản đồ: chấm theo toạ độ từng chi nhánh, màu theo miền ---- */
+  /* Bản đồ: chấm theo toạ độ từng chi nhánh, màu theo miền */
   const mapPoints = useMemo(() => sliceAll.stores.map((st) => {
     const m = meta[st.id] || {};
     return {
@@ -2551,7 +2844,167 @@ function OverviewPage({ data }) {
   const onMapClick = useCallback((p) => {
     if (p.seriesType === 'scatter') toggle('store', p.data.id);
     else if (p.componentType === 'geo' && p.name) toggle('prov', p.name);
-  }, []);
+  }, [toggle]);
+
+  /* Xếp hạng chi nhánh */
+  const storeRows = useMemo(() => storeRowsOf(slice, meta, targetByStore), [slice, meta, targetByStore]);
+  const topStores = storeRows.slice(0, 12).reverse();
+  const storeOption = useMemo(() => ({
+    ...ANIM,
+    grid: { left: 130, right: 58, top: 8, bottom: 8 },
+    tooltip: { ...TIP, trigger: 'item', formatter: (p) => {
+      const r = topStores[p.dataIndex];
+      return `<b>${r.name}</b><br/>${r.city} · ${r.region}<br/>Doanh thu <b>${money(r.revenue)} đ</b><br/>Hoá đơn <b>${money(r.bills)}</b>`
+        + (r.target ? `<br/>Target ${money(r.target)} đ · đạt <b>${pct1(r.revenue / r.target * 100)}</b>` : '');
+    } },
+    xAxis: { type: 'value', show: false },
+    yAxis: { type: 'category', data: topStores.map((r) => r.name), ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false },
+      axisLabel: { ...AXIS_STYLE.axisLabel, color: INK.txt, fontSize: 11, width: 118, overflow: 'truncate' } },
+    series: [{
+      type: 'bar', barWidth: 12, itemStyle: { color: BRAND_HEX, borderRadius: [0, 4, 4, 0] },
+      label: { show: true, position: 'right', distance: 8, color: INK.txt, fontSize: 11, fontWeight: 600, fontFamily: FONT, formatter: (p) => unit(p.value) },
+      data: topStores.map((r) => Math.round(r.revenue)),
+    }],
+  }), [topStores]);
+  const onStoreClick = useCallback((p) => { const r = topStores[p.dataIndex]; if (r) toggle('store', r.id); }, [topStores, toggle]);
+
+  /* Tăng trưởng: doanh thu kỳ này so với đúng cửa hàng đó kỳ liền trước */
+  const prevRevByStore = useMemo(() => {
+    const m = {};
+    for (const st of prevSlice.stores) m[st.id] = adjRevenue(st.revenue, st.commission);
+    return m;
+  }, [prevSlice]);
+  const growthOf = (r) => { const p = prevRevByStore[r.id]; return p ? pctDiff(r.revenue, p) : null; };
+
+  /* Chỉ xếp hạng cửa hàng thật (đã gán City) - loại các mã nội bộ (PĐT/CSKH...) chưa gán Chi nhánh */
+  const lists = useMemo(() => {
+    const real = storeRows.filter((r) => r.city !== UNASSIGNED);
+    const row = (r, delta) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: delta === undefined ? growthOf(r) : delta });
+    const grown = real.map((r) => ({ r, g: growthOf(r) })).filter((x) => x.g != null);
+    return {
+      high: real.slice(0, 10).map((r) => row(r)),
+      low: [...real].filter((r) => r.revenue > 0).sort((a, b) => a.revenue - b.revenue).slice(0, 10).map((r) => row(r)),
+      up: [...grown].sort((a, b) => b.g - a.g).slice(0, 10).map(({ r, g }) => row(r, g)),
+      down: [...grown].sort((a, b) => a.g - b.g).slice(0, 10).map(({ r, g }) => row(r, g)),
+    };
+  }, [storeRows, prevRevByStore]);
+  const boardDefs = {
+    high: ['Top 10 chi nhánh cao nhất', `Doanh thu ${word.now} · bấm để lọc`],
+    low: ['Top 10 chi nhánh thấp nhất', `Doanh thu ${word.now} · bấm để lọc`],
+    up: ['Top 10 tăng mạnh nhất', `So với cùng chi nhánh ${word.prev}`],
+    down: ['Top 10 tăng trưởng chậm nhất', `So với cùng chi nhánh ${word.prev} · giảm sâu nhất lên trước`],
+  };
+  const boardCol = boards.length === 4 ? 'c6' : boards.length === 2 ? 'c6' : 'c4';
+
+  return (
+    <div className="dash">
+      <div className="c4">
+        <ChartCard
+          title="Bản đồ chi nhánh"
+          sub={`${mapPoints.length} chi nhánh có toạ độ${noCoords ? ` · ${noCoords} chưa có` : ''} · bấm để lọc`}
+          height={520}
+          option={mapReady ? mapOption : null}
+          onClick={onMapClick}
+          empty={!mapReady ? 'Đang tải bản đồ…' : (!mapPoints.length ? 'Chưa chi nhánh nào có toạ độ — thêm ở tab Chi nhánh.' : null)}
+          table={(
+            <table>
+              <thead><tr><th>Chi nhánh</th><th>Tỉnh/TP</th><th className="r">Doanh thu</th></tr></thead>
+              <tbody>{[...mapPoints].sort((a, b) => b.revenue - a.revenue).map((p) => (
+                <tr key={p.id}><td>{swatchOf(REGION_COLOR[p.region] || INK.axis)}{p.name}</td><td>{p.city}</td><td className="r">{moneyD(p.revenue)}</td></tr>
+              ))}</tbody>
+            </table>
+          )}
+        />
+      </div>
+
+      <div className="c8">
+        <ChartCard
+          title="Top chi nhánh theo doanh thu" sub={`${storeRows.length} chi nhánh · bấm để lọc`} height={520}
+          option={storeOption} onClick={onStoreClick}
+          table={(
+            <table>
+              <thead><tr><th>#</th><th>Chi nhánh</th><th className="r">Doanh thu</th><th className="r">Target</th><th className="r">Đạt</th><th className="r">vs {word.prev}</th></tr></thead>
+              <tbody>{storeRows.map((r, i) => {
+                const g = growthOf(r);
+                return (
+                  <tr key={r.id}><td style={{ color: INK.mute }}>{i + 1}</td><td>{r.name}</td>
+                    <td className="r">{moneyD(r.revenue)}</td><td className="r">{r.target ? moneyD(r.target) : '—'}</td>
+                    <td className="r">{r.target ? pct1(r.revenue / r.target * 100) : '—'}</td>
+                    <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td></tr>
+                );
+              })}</tbody>
+            </table>
+          )}
+        />
+      </div>
+
+      {boards.map((k) => (
+        <div className={boardCol} key={k}>
+          <Leaderboard title={boardDefs[k][0]} sub={boardDefs[k][1]} rows={lists[k]} onClick={(r) => toggle('store', r.id)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OverviewPage({ data }) {
+  const { cur, prev, range, storesMeta, targets } = data;
+  const [filter, setFilter] = useState({});
+
+  const meta = useMemo(() => {
+    const m = {};
+    for (const s of storesMeta || []) m[s.id] = s;
+    return m;
+  }, [storesMeta]);
+
+  const slice = useMemo(() => sliceOf(cur, meta, filter), [cur, meta, filter]);
+  const sliceAll = useMemo(() => sliceOf(cur, meta, {}), [cur, meta]);
+  const prevSlice = useMemo(() => sliceOf(prev, meta, filter), [prev, meta, filter]);
+  // Cùng kỳ tháng trước (01-24/09 -> 01-24/08) - cột thứ 3 của các biểu đồ ADS
+  const momSlice = useMemo(() => sliceOf(data.mom || { byStore: {}, days: {} }, meta, filter), [data.mom, meta, filter]);
+  const geoFilter = !!(filter.region || filter.prov || filter.city || filter.am || filter.store);
+
+  /* ---- Target của kỳ đang chọn ----
+     Kỳ có thể là vài ngày hoặc vắt qua nhiều tháng, nên target mỗi tháng được chia theo
+     số ngày của tháng đó nằm trong kỳ: target tháng × (số ngày trong kỳ / số ngày cả tháng). */
+  const rangeDays = dDiff(range.from, range.to) + 1;
+  const monthShare = useMemo(() => {
+    const share = {};
+    for (let k = monthStart(range.from); k <= range.to; k = dAdd(monthEnd(k), 1)) {
+      const full = dDiff(monthStart(k), monthEnd(k)) + 1;
+      const from = k > range.from ? k : range.from;
+      const to = monthEnd(k) < range.to ? monthEnd(k) : range.to;
+      if (to < from) continue;
+      share[k.slice(0, 7)] = (dDiff(from, to) + 1) / full;
+    }
+    return share;
+  }, [range.from, range.to]);
+  const targetByStore = useMemo(() => {
+    const m = {};
+    for (const t of targets || []) {
+      const p = monthShare[t.year + '-' + pad2(t.month)];
+      if (!p) continue;
+      m[t.storeId] = (m[t.storeId] || 0) + (t.target || 0) * p;
+    }
+    return m;
+  }, [targets, monthShare]);
+  const targetTotal = useMemo(() => Object.entries(targetByStore)
+    .filter(([id]) => slice.keep(id)).reduce((a, [, v]) => a + v, 0), [targetByStore, slice]);
+
+  const achievePct = targetTotal ? slice.revenue / targetTotal * 100 : null;
+  /* FC = ADS × số chi nhánh đang có doanh thu × số ngày của kỳ (dự báo tới hết kỳ đã chọn) */
+  const fcPct = targetTotal ? (slice.ads * slice.nStores * rangeDays) / targetTotal * 100 : null;
+
+  /* ---- Chuỗi ngày trong tháng ---- */
+  const dayKeys = useMemo(() => {
+    const out = [];
+    for (let k = range.from; k <= range.to; k = dAdd(k, 1)) out.push(k);
+    return out;
+  }, [range.from, range.to]);
+  const dayRevenue = dayKeys.map((k) => (slice.byDate[k] ? slice.byDate[k].revenue : 0));
+  const dayTarget = targetTotal ? targetTotal / rangeDays : 0;
+
+  const toggle = useCallback((key, value) => setFilter((f) => ({ ...f, [key]: f[key] === value ? null : value })), []);
 
   /* ---- Doanh thu theo ngày + mốc target/ngày ---- */
   const dailyOption = useMemo(() => ({
@@ -2594,187 +3047,6 @@ function OverviewPage({ data }) {
   /* ---- Luỹ kế vs target ---- */
   /* ---- AOV theo ngày (thay biểu đồ luỹ kế vs nhịp target) ---- */
   const aovDayChart = useMemo(() => aovDayOption(dayKeys, slice.byDate, dShort), [dayKeys, slice]);
-
-  /* ---- Cơ cấu theo miền ---- */
-  const regionRows = useMemo(() => {
-    const agg = {};
-    for (const st of slice.stores) {
-      const rg = (meta[st.id] || {}).region || UNASSIGNED;
-      (agg[rg] ||= { name: rg, revenue: 0, bills: 0, target: 0, stores: 0 });
-      agg[rg].revenue += adjRevenue(st.revenue, st.commission);
-      agg[rg].bills += st.bills;
-      agg[rg].stores++;
-    }
-    for (const [id, tg] of Object.entries(targetByStore)) {
-      if (!slice.keep(id)) continue;
-      const rg = (meta[id] || {}).region || UNASSIGNED;
-      (agg[rg] ||= { name: rg, revenue: 0, bills: 0, target: 0, stores: 0 }).target += tg;
-    }
-    return Object.values(agg).sort((a, b) => b.revenue - a.revenue);
-  }, [slice, meta, targetByStore]);
-
-  const regionOption = useMemo(() => ({
-    ...ANIM,
-    tooltip: { ...TIP, trigger: 'item', formatter: (p) => `<b>${p.name}</b><br/>Doanh thu <b>${money(p.value)} đ</b><br/>Tỉ trọng <b>${p.percent}%</b><br/>${p.data.stores} chi nhánh` },
-    legend: { bottom: 0, left: 'center', icon: 'circle', itemWidth: 9, itemHeight: 9, textStyle: { color: INK.mute, fontSize: 11.5, fontFamily: FONT } },
-    series: [{
-      type: 'pie', radius: ['52%', '76%'], center: ['50%', '44%'], avoidLabelOverlap: true,
-      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 }, // khe 2px giữa các miếng
-      label: { show: true, formatter: (p) => `${p.name}\n${unit(p.value)}`, color: INK.txt, fontSize: 11, fontFamily: FONT, lineHeight: 15 },
-      labelLine: { length: 8, length2: 8, lineStyle: { color: INK.axis } },
-      data: regionRows.map((r) => ({ name: r.name, value: Math.round(r.revenue), stores: r.stores, itemStyle: { color: REGION_COLOR[r.name] || INK.axis } })),
-    }],
-  }), [regionRows]);
-
-  /* ---- Nguồn đơn (toàn chuỗi) - gộp đuôi vào "Khác", không chế thêm màu ---- */
-  const sourceRows = useMemo(() => {
-    const all = Object.values(cur.bySource || {}).filter((x) => x.revenue > 0).sort((a, b) => b.revenue - a.revenue);
-    const top = all.slice(0, 5);
-    const rest = all.slice(5);
-    if (rest.length) top.push({ name: 'Khác', revenue: rest.reduce((a, x) => a + x.revenue, 0), bills: rest.reduce((a, x) => a + x.bills, 0), rest: rest.length });
-    return top;
-  }, [cur]);
-  const sourceOption = useMemo(() => ({
-    ...ANIM,
-    tooltip: { ...TIP, trigger: 'item', formatter: (p) => `<b>${p.name}</b><br/>Doanh thu <b>${money(p.value)} đ</b><br/>Tỉ trọng <b>${p.percent}%</b>` },
-    legend: { bottom: 0, left: 'center', icon: 'circle', itemWidth: 9, itemHeight: 9, itemGap: 10, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
-    series: [{
-      type: 'pie', radius: ['52%', '76%'], center: ['50%', '42%'],
-      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 },
-      label: { show: true, formatter: (p) => unit(p.value), color: INK.txt, fontSize: 11, fontFamily: FONT },
-      labelLine: { length: 6, length2: 8, lineStyle: { color: INK.axis } },
-      data: sourceRows.map((r, i) => ({ name: r.name, value: Math.round(r.revenue), itemStyle: { color: r.name === 'Khác' ? INK.axis : SERIES[i] } })),
-    }],
-  }), [sourceRows]);
-
-  /* ---- PTTT (toàn chuỗi): cột ngang vì các giá trị hay sát nhau ---- */
-  const payRows = useMemo(() => Object.values(cur.byPayment || {}).filter((x) => x.revenue > 0)
-    .sort((a, b) => a.revenue - b.revenue).slice(-6), [cur]);
-  const payOption = useMemo(() => ({
-    ...ANIM,
-    grid: { left: 112, right: 58, top: 10, bottom: 8 },
-    tooltip: { ...TIP, trigger: 'item', formatter: (p) => `<b>${p.name}</b><br/>Doanh thu <b>${money(p.value)} đ</b>` },
-    xAxis: { type: 'value', show: false },
-    yAxis: { type: 'category', data: payRows.map((r) => r.name), ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false },
-      axisLabel: { ...AXIS_STYLE.axisLabel, color: INK.txt, fontSize: 11.5, width: 100, overflow: 'truncate' } },
-    series: [{
-      type: 'bar', barWidth: 13, itemStyle: { color: SERIES[0], borderRadius: [0, 4, 4, 0] },
-      label: { show: true, position: 'right', distance: 8, color: INK.txt, fontSize: 11, fontWeight: 600, fontFamily: FONT, formatter: (p) => unit(p.value) },
-      data: payRows.map((r) => Math.round(r.revenue)),
-    }],
-  }), [payRows]);
-
-  /* Tên món -> các khoá món trong d05Days (mã món), và số ngày trong kỳ có dữ liệu món */
-  const itemNames = useMemo(() => Object.values(cur.byItem || {})
-    .sort((a, b) => b.revenue - a.revenue).map((x) => x.name), [cur]);
-  const keysByName = useMemo(() => {
-    const m = {};
-    for (const d of Object.values(cur.days || {})) {
-      for (const [k, it] of Object.entries(d.items || {})) {
-        const set = (m[it.name] ||= []);
-        if (!set.includes(k)) set.push(k);
-      }
-    }
-    return m;
-  }, [cur]);
-  const itemDayCount = useMemo(() => Object.values(cur.days || {})
-    .filter((d) => d.items && Object.keys(d.items).length).length, [cur]);
-
-  /* ---- Cây: nhóm món -> món (toàn chuỗi) ---- */
-  const treeData = useMemo(() => {
-    const groups = {};
-    for (const it of Object.values(cur.byItem || {})) {
-      if (!it.revenue) continue;
-      const g = it.group || 'Khác';
-      (groups[g] ||= []).push({ name: it.name, value: Math.round(it.revenue) });
-    }
-    return Object.entries(groups)
-      .map(([g, children]) => ({
-        name: g,
-        value: children.reduce((a, c) => a + c.value, 0),
-        children: children.sort((a, b) => b.value - a.value).slice(0, 12),
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8)
-      .map((g, i) => ({ ...g, itemStyle: { color: PASTEL[i] } }));
-  }, [cur]);
-  const treeOption = useMemo(() => ({
-    ...ANIM,
-    tooltip: { ...TIP, formatter: (p) => `<b>${p.name}</b><br/>Doanh thu <b>${money(p.value)} đ</b>` },
-    series: [{
-      type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: false },
-      top: 6, bottom: 6, left: 6, right: 6,
-      itemStyle: { borderColor: '#fff', borderWidth: 2, gapWidth: 2 },
-      upperLabel: { show: true, height: 20, color: INK.txt, fontSize: 11, fontWeight: 700, fontFamily: FONT },
-      label: { fontSize: 11, fontFamily: FONT, color: INK.txt, formatter: (p) => (p.value > 4e8 ? `${p.name}\n${unit(p.value)}` : '') },
-      levels: [
-        { itemStyle: { borderWidth: 0, gapWidth: 3 } },
-        { colorSaturation: [0.85, 1], itemStyle: { gapWidth: 2, borderColorSaturation: 0.5 } },
-      ],
-      data: treeData,
-    }],
-  }), [treeData]);
-
-  /* ---- Xếp hạng chi nhánh ---- */
-  const storeRows = useMemo(() => slice.stores.map((st) => {
-    const m = meta[st.id] || {};
-    return {
-      id: st.id, name: storeShort(m.storeName || st.name), region: m.region || UNASSIGNED, city: m.city || UNASSIGNED,
-      am: m.am || '', revenue: adjRevenue(st.revenue, st.commission), bills: st.bills, target: targetByStore[st.id] || 0,
-    };
-  }).sort((a, b) => b.revenue - a.revenue), [slice, meta, targetByStore]);
-  const topStores = storeRows.slice(0, 12).reverse();
-  const storeOption = useMemo(() => ({
-    ...ANIM,
-    grid: { left: 130, right: 58, top: 8, bottom: 8 },
-    tooltip: { ...TIP, trigger: 'item', formatter: (p) => {
-      const r = topStores[p.dataIndex];
-      return `<b>${r.name}</b><br/>${r.city} · ${r.region}<br/>Doanh thu <b>${money(r.revenue)} đ</b><br/>Hoá đơn <b>${money(r.bills)}</b>`
-        + (r.target ? `<br/>Target ${money(r.target)} đ · đạt <b>${pct1(r.revenue / r.target * 100)}</b>` : '');
-    } },
-    xAxis: { type: 'value', show: false },
-    yAxis: { type: 'category', data: topStores.map((r) => r.name), ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false },
-      axisLabel: { ...AXIS_STYLE.axisLabel, color: INK.txt, fontSize: 11, width: 118, overflow: 'truncate' } },
-    series: [{
-      type: 'bar', barWidth: 12, itemStyle: { color: BRAND_HEX, borderRadius: [0, 4, 4, 0] },
-      label: { show: true, position: 'right', distance: 8, color: INK.txt, fontSize: 11, fontWeight: 600, fontFamily: FONT, formatter: (p) => unit(p.value) },
-      data: topStores.map((r) => Math.round(r.revenue)),
-    }],
-  }), [topStores]);
-  const onStoreClick = useCallback((p) => { const r = topStores[p.dataIndex]; if (r) toggle('store', r.id); }, [topStores]);
-
-  /* ---- Tăng trưởng theo chi nhánh: doanh thu tháng này so với đúng cửa hàng đó tháng trước ---- */
-  const prevRevByStore = useMemo(() => {
-    const m = {};
-    for (const st of prevSlice.stores) m[st.id] = adjRevenue(st.revenue, st.commission);
-    return m;
-  }, [prevSlice]);
-  const growthOf = useCallback((r) => {
-    const p = prevRevByStore[r.id];
-    return p ? pctDiff(r.revenue, p) : null;
-  }, [prevRevByStore]);
-  const onLbClick = useCallback((r) => toggle('store', r.id), [toggle]);
-
-  /* Chỉ xếp hạng cửa hàng thật (đã gán City) - loại các mã nội bộ (PĐT/CSKH...) chưa gán Chi nhánh */
-  const realStoreRows = useMemo(() => storeRows.filter((r) => r.city !== UNASSIGNED), [storeRows]);
-  const top10Highest = useMemo(() => realStoreRows.slice(0, 10)
-    .map((r) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: growthOf(r) })), [realStoreRows, growthOf]);
-  const top10Lowest = useMemo(() => [...realStoreRows].filter((r) => r.revenue > 0).sort((a, b) => a.revenue - b.revenue).slice(0, 10)
-    .map((r) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: growthOf(r) })), [realStoreRows, growthOf]);
-  /* Tăng trưởng CHẬM nhất: xếp tăng dần nên đầu bảng là chi nhánh giảm sâu nhất */
-  const top10Growth = useMemo(() => realStoreRows
-    .map((r) => ({ r, growth: growthOf(r) }))
-    .filter((x) => x.growth != null)
-    .sort((a, b) => a.growth - b.growth)
-    .slice(0, 10)
-    .map(({ r, growth }) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: growth })),
-    [realStoreRows, growthOf]);
-
-  /* ---- Tiến độ target theo từng chi nhánh: sắp xếp thấp -> cao để lộ ngay chi nhánh đang đuối ---- */
-  const targetProgressRows = useMemo(() => storeRows
-    .filter((r) => r.target > 0)
-    .map((r) => ({ id: r.id, name: r.name, sub: unit(r.revenue) + ' / ' + unit(r.target) + ' đ', value: pct1(r.revenue / r.target * 100), bar: r.revenue / r.target * 100 }))
-    .sort((a, b) => a.bar - b.bar), [storeRows]);
 
   /* ---- Nhận định nhanh: ngày cao/thấp điểm, nhịp so với target, chi nhánh đang có doanh thu ---- */
   const dayEntries = useMemo(() => dayKeys.map((k, i) => ({ k, v: dayRevenue[i] })).filter((d) => slice.byDate[d.k]), [dayKeys, dayRevenue, slice]);
@@ -2823,64 +3095,14 @@ function OverviewPage({ data }) {
   }, [slice, prevSlice, momSlice, meta, targetInSlice, rangeDays]);
   const dimClick = { region: 'region', city: 'city', am: 'am' };
 
-  /* =================== MỤC AOV ===================
-     Ba đường AOV / AOV-ET / AOV-D theo 12 tháng, đọc từ dữ liệu cả năm (tải nền).
-     Bộ lọc đang bật cũng áp vào đây nên xem được đường của riêng một miền/tỉnh/AM. */
-  const yearRows = useMemo(() => monthlyAov(data.yearDays, slice.keep), [data.yearDays, slice]);
-  const yearHasData = yearRows.some((r) => r.aov != null);
-  const aovYearOption = useMemo(() => {
-    const line = (name, key, color, dash) => ({
-      name, type: 'line', smooth: 0.25, symbol: 'circle', symbolSize: 6, connectNulls: true,
-      lineStyle: { width: 2.2, color, type: dash || 'solid' }, itemStyle: { color },
-      data: yearRows.map((r) => (r[key] == null ? null : Math.round(r[key]))),
-    });
-    return {
-      ...ANIM,
-      grid: { left: 56, right: 18, top: 28, bottom: 28 },
-      tooltip: {
-        ...TIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: INK.axis, width: 1 } },
-        formatter: (ps) => `<b>${MONTHS[ps[0].dataIndex]}</b><br/>` +
-          ps.map((p) => `${p.marker} ${p.seriesName} <b>${p.value == null ? '—' : money(p.value) + ' đ'}</b>`).join('<br/>'),
-      },
-      legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 3, textStyle: { color: INK.mute, fontSize: 11, fontFamily: FONT } },
-      xAxis: { type: 'category', data: MONTHS.map((m) => m.replace('Tháng ', 'T')), boundaryGap: false, ...AXIS_STYLE, splitLine: { show: false } },
-      yAxis: { type: 'value', scale: true, ...AXIS_STYLE, axisLine: { show: false }, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: unit } },
-      series: [
-        line('AOV chung', 'aov', BRAND_HEX),
-        line('AOV-ET', 'aovET', SERIES[0], 'dashed'),
-        line('AOV-D', 'aovD', SERIES[2], 'dashed'),
-      ],
-    };
-  }, [yearRows]);
-
   /* AOV theo chiều: 3 cột cạnh nhau cho mỗi nhóm - thấy ngay nhóm nào sống bằng đơn giao hàng. */
   /* Tỉ trọng hoá đơn giao hàng - chỉ số "sức khoẻ kênh" đi kèm cụm AOV. */
   const dShare = slice.tc ? (slice.stores.reduce((a, st) => a + (st.dBills || 0), 0) / slice.tc) * 100 : null;
   const prevDShare = prevSlice.tc ? (prevSlice.stores.reduce((a, st) => a + (st.dBills || 0), 0) / prevSlice.tc) * 100 : null;
 
-  /* ---- Tỉnh/TP: doanh thu vs target (nhấn mạnh 1 màu + xám, không phải 2 chuỗi đua màu) ---- */
-  const cityRows = useMemo(() => {
-    const agg = {};
-    for (const st of slice.stores) {
-      const c = (meta[st.id] || {}).city || UNASSIGNED;
-      (agg[c] ||= { name: c, revenue: 0, target: 0 }).revenue += adjRevenue(st.revenue, st.commission);
-    }
-    for (const [id, tg] of Object.entries(targetByStore)) {
-      if (!slice.keep(id)) continue;
-      const c = (meta[id] || {}).city || UNASSIGNED;
-      (agg[c] ||= { name: c, revenue: 0, target: 0 }).target += tg;
-    }
-    return Object.values(agg).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
-  }, [slice, meta, targetByStore]);
-  const cityOption = useMemo(() => cmpBarOption(cityRows, {
-    value: (r) => r.revenue, base: (r) => r.target,
-    valueName: 'Doanh thu', baseName: 'Target', labelWidth: 84,
-  }), [cityRows]);
-
   if (!cur.bills) return <div className="empty">Chưa có dữ liệu cho {rangeLabel(range)}.</div>;
 
   const money2 = (v) => money(v) + ' đ';
-  const swatch = (c) => <i className="sw" style={{ background: c }} />;
 
   /* Bảng số dùng chung cho 3 thẻ ADS (miền / tỉnh / AM): mỗi dòng đều có cột so tháng trước. */
   const adsTable = (d) => (
@@ -3050,25 +3272,7 @@ function OverviewPage({ data }) {
 
       <div className="dash">
         <div className="c8">
-          <ChartCard
-            title={`Ba đường AOV theo tháng — năm ${+range.from.slice(0, 4)}`}
-            sub={geoFilter ? 'Đang vẽ theo đúng lát cắt đang lọc' : 'Toàn chuỗi · mỗi điểm là một tháng'}
-            height={330}
-            option={aovYearOption}
-            empty={data.yearBusy ? 'Đang tải dữ liệu cả năm…' : (!yearHasData ? 'Chưa có dữ liệu năm này.' : null)}
-            table={(
-              <table>
-                <thead><tr><th>Tháng</th><th className="r">AOV</th><th className="r">AOV-ET</th><th className="r">AOV-D</th><th className="r">Hoá đơn</th></tr></thead>
-                <tbody>{yearRows.map((r) => (
-                  <tr key={r.month}><td>{MONTHS[r.month - 1]}</td>
-                    <td className="r">{r.aov == null ? '—' : money2(r.aov)}</td>
-                    <td className="r">{r.aovET == null ? '—' : money2(r.aovET)}</td>
-                    <td className="r">{r.aovD == null ? '—' : money2(r.aovD)}</td>
-                    <td className="r">{money(r.bills)}</td></tr>
-                ))}</tbody>
-              </table>
-            )}
-          />
+          <AovYearCard yearDays={data.yearDays} keep={slice.keep} busy={data.yearBusy} year={+range.from.slice(0, 4)} geoFilter={geoFilter} />
         </div>
 
         <div className="c4">
@@ -3104,171 +3308,18 @@ function OverviewPage({ data }) {
 
       {/* ============ 4. TARGET ============ */}
       <Section n="4" title="Target — ai đang bám kịp, ai đang đuối"
-        sub="Tiến độ đạt target của từng chi nhánh và từng tỉnh/TP trong tháng đang chọn" />
-
-      <div className="dash">
-        <div className="c5">
-          <Leaderboard
-            title="Tiến độ target theo chi nhánh" sub="Đạt% = doanh thu / target · thấp nhất lên trước"
-            tag={targetProgressRows.length ? `${targetProgressRows.length} chi nhánh` : null}
-            rows={targetProgressRows.slice(0, 10)} onClick={onLbClick}
-          />
-        </div>
-
-        <div className="c7">
-          <ChartCard
-            title="Tỉnh/TP: doanh thu vs target" sub="Top 10 theo doanh thu · cột xám = target" height={barCardH(cityRows.length, 30, 260, 400)}
-            option={cityOption}
-            table={(
-              <table>
-                <thead><tr><th>Tỉnh/TP</th><th className="r">Doanh thu</th><th className="r">Target</th><th className="r">Đạt</th></tr></thead>
-                <tbody>{cityRows.map((r) => (
-                  <tr key={r.name}><td>{r.name}</td><td className="r">{money2(r.revenue)}</td>
-                    <td className="r">{r.target ? money2(r.target) : '—'}</td>
-                    <td className="r">{r.target ? pct1(r.revenue / r.target * 100) : '—'}</td></tr>
-                ))}</tbody>
-              </table>
-            )}
-          />
-        </div>
-      </div>
+        sub="Tiến độ đạt target của từng chi nhánh và từng tỉnh/TP trong kỳ đang chọn" />
+      <TargetBlock slice={slice} meta={meta} targetByStore={targetByStore} toggle={toggle} />
 
       {/* ============ 5. CƠ CẤU DOANH THU ============ */}
       <Section n="5" title="Cơ cấu doanh thu" sub="Doanh thu đang đến từ đâu: miền · nguồn đơn · phương thức thanh toán · nhóm món" />
-
-      <div className="dash">
-        <div className="c4">
-          <ChartCard
-            title="Cơ cấu theo miền" sub="Tỉ trọng doanh thu · bấm để lọc" height={280}
-            option={regionOption}
-            onClick={onRegionClick}
-            table={(
-              <table>
-                <thead><tr><th>Miền</th><th className="r">Doanh thu</th><th className="r">Target</th><th className="r">Đạt</th></tr></thead>
-                <tbody>{regionRows.map((r) => (
-                  <tr key={r.name}><td>{swatch(REGION_COLOR[r.name] || INK.axis)}{r.name}</td>
-                    <td className="r">{money2(r.revenue)}</td><td className="r">{r.target ? money2(r.target) : '—'}</td>
-                    <td className="r">{r.target ? pct1(r.revenue / r.target * 100) : '—'}</td></tr>
-                ))}</tbody>
-              </table>
-            )}
-          />
-        </div>
-
-        <div className="c4">
-          <ChartCard
-            title="Theo nguồn đơn" sub="Tại chỗ / mang về / app giao hàng" height={280}
-            tag={geoFilter ? 'toàn chuỗi' : null}
-            option={sourceOption}
-            empty={!sourceRows.length ? 'Tháng này chưa nạp lại dữ liệu nguồn đơn.' : null}
-            table={(
-              <table>
-                <thead><tr><th>Nguồn</th><th className="r">Doanh thu</th><th className="r">Hoá đơn</th></tr></thead>
-                <tbody>{sourceRows.map((r, i) => (
-                  <tr key={r.name}><td>{swatch(r.name === 'Khác' ? INK.axis : SERIES[i])}{r.name}</td>
-                    <td className="r">{money2(r.revenue)}</td><td className="r">{money(r.bills || 0)}</td></tr>
-                ))}</tbody>
-              </table>
-            )}
-          />
-        </div>
-
-        <div className="c4">
-          <ChartCard
-            title="Phương thức thanh toán" sub="Top 6 theo doanh thu" height={280}
-            tag={geoFilter ? 'toàn chuỗi' : null}
-            option={payOption}
-            empty={!payRows.length ? 'Tháng này chưa nạp lại dữ liệu PTTT.' : null}
-            table={(
-              <table>
-                <thead><tr><th>PTTT</th><th className="r">Doanh thu</th></tr></thead>
-                <tbody>{[...payRows].reverse().map((r) => (
-                  <tr key={r.name}><td>{swatch(SERIES[0])}{r.name}</td><td className="r">{money2(r.revenue)}</td></tr>
-                ))}</tbody>
-              </table>
-            )}
-          />
-        </div>
-
-        <div className="c12">
-          <ChartCard
-            title="Cơ cấu món bán" sub="Nhóm món → món, diện tích theo doanh thu" height={320}
-            tag={geoFilter ? 'toàn chuỗi' : null}
-            option={treeOption}
-            empty={!treeData.length ? 'Chưa có dữ liệu món.' : null}
-            table={(
-              <table>
-                <thead><tr><th>Nhóm món</th><th className="r">Doanh thu</th><th className="r">Tỉ trọng</th></tr></thead>
-                <tbody>{treeData.map((g, i) => (
-                  <tr key={g.name}><td>{swatch(PASTEL[i])}{g.name}</td><td className="r">{money2(g.value)}</td>
-                    <td className="r">{pct1(g.value / (treeData.reduce((a, x) => a + x.value, 0) || 1) * 100)}</td></tr>
-                ))}</tbody>
-              </table>
-            )}
-          />
-        </div>
-      </div>
-
-      <div className="dash">
-        <div className="c12">
-          <ItemStoreCard range={range} itemNames={itemNames} keysByName={keysByName} meta={meta}
-            keep={slice.keep} dayCount={itemDayCount} />
-        </div>
-      </div>
+      <MixBlock cur={cur} slice={slice} meta={meta} targetByStore={targetByStore} geoFilter={geoFilter}
+        range={range} toggle={toggle} word={WORD_RANGE} />
 
       {/* ============ 6. CHI NHÁNH ============ */}
-      <Section n="6" title="Chi nhánh" sub="Bản đồ, xếp hạng doanh thu và nhóm tăng trưởng — tất cả đều so với tháng trước" />
-
-      <div className="dash">
-        <div className="c4">
-          <ChartCard
-            title="Bản đồ chi nhánh"
-            sub={`${mapPoints.length} chi nhánh có toạ độ${noCoords ? ` · ${noCoords} chưa có` : ''} · bấm để lọc`}
-            height={520}
-            option={mapReady ? mapOption : null}
-            onClick={onMapClick}
-            empty={!mapReady ? 'Đang tải bản đồ…' : (!mapPoints.length ? 'Chưa chi nhánh nào có toạ độ — thêm ở tab Chi nhánh.' : null)}
-            table={(
-              <table>
-                <thead><tr><th>Chi nhánh</th><th>Tỉnh/TP</th><th className="r">Doanh thu</th></tr></thead>
-                <tbody>{[...mapPoints].sort((a, b) => b.revenue - a.revenue).map((p) => (
-                  <tr key={p.id}><td>{swatch(REGION_COLOR[p.region] || INK.axis)}{p.name}</td><td>{p.city}</td><td className="r">{money2(p.revenue)}</td></tr>
-                ))}</tbody>
-              </table>
-            )}
-          />
-        </div>
-
-        <div className="c8">
-          <ChartCard
-            title="Top chi nhánh theo doanh thu" sub={`${storeRows.length} chi nhánh · bấm để lọc`} height={520}
-            option={storeOption} onClick={onStoreClick}
-            table={(
-              <table>
-                <thead><tr><th>#</th><th>Chi nhánh</th><th className="r">Doanh thu</th><th className="r">Target</th><th className="r">Đạt</th></tr></thead>
-                <tbody>{storeRows.map((r, i) => (
-                  <tr key={r.id}><td style={{ color: INK.mute }}>{i + 1}</td><td>{r.name}</td>
-                    <td className="r">{money2(r.revenue)}</td><td className="r">{r.target ? money2(r.target) : '—'}</td>
-                    <td className="r">{r.target ? pct1(r.revenue / r.target * 100) : '—'}</td></tr>
-                ))}</tbody>
-              </table>
-            )}
-          />
-        </div>
-
-        <div className="c4">
-          <Leaderboard title="Top 10 chi nhánh cao nhất" sub="Doanh thu tháng này · bấm để lọc"
-            rows={top10Highest} onClick={onLbClick} />
-        </div>
-        <div className="c4">
-          <Leaderboard title="Top 10 chi nhánh thấp nhất" sub="Doanh thu tháng này · bấm để lọc"
-            rows={top10Lowest} onClick={onLbClick} />
-        </div>
-        <div className="c4">
-          <Leaderboard title="Top 10 tăng trưởng chậm nhất" sub="So với cùng chi nhánh kỳ trước"
-            rows={top10Growth} onClick={onLbClick} />
-        </div>
-      </div>
+      <Section n="6" title="Chi nhánh" sub="Bản đồ, xếp hạng doanh thu và nhóm tăng trưởng — tất cả đều so với kỳ trước" />
+      <BranchBlock slice={slice} sliceAll={sliceAll} prevSlice={prevSlice} meta={meta} targetByStore={targetByStore}
+        toggle={toggle} word={WORD_RANGE} />
 
       {/* ============ 7. ZONE AM/DM ============ */}
       <Section n="7" title="Zone AM / DM" sub="Chọn một AM hoặc DM để xem số của cả zone và từng chi nhánh — luôn so với cùng kỳ tháng trước" />
@@ -3298,17 +3349,22 @@ function OverviewPage({ data }) {
 ===================================================================== */
 function WeeklyPage({ data }) {
   const { cur, prev, range, storesMeta, targets } = data;
+  const [filter, setFilter] = useState({});
   const meta = useMemo(() => {
     const m = {};
     for (const st of storesMeta || []) m[st.id] = st;
     return m;
   }, [storesMeta]);
 
-  /* Cùng bộ chỉ số với Summary (sliceOf/aggDim) nên mọi định nghĩa khớp nhau,
-     chỉ khác: mọi so sánh ở đây đều là TUẦN NÀY vs TUẦN TRƯỚC. */
-  const slice = useMemo(() => sliceOf(cur, meta, {}), [cur, meta]);
-  const prevSlice = useMemo(() => sliceOf(prev, meta, {}), [prev, meta]);
+  /* Cùng bộ chỉ số và cùng các khối báo cáo với Summary (sliceOf/aggDim/TargetBlock/...),
+     cũng lọc chéo được như Summary, chỉ khác: mọi so sánh ở đây là TUẦN NÀY vs TUẦN TRƯỚC. */
+  const slice = useMemo(() => sliceOf(cur, meta, filter), [cur, meta, filter]);
+  const sliceAll = useMemo(() => sliceOf(cur, meta, {}), [cur, meta]);
+  const prevSlice = useMemo(() => sliceOf(prev, meta, filter), [prev, meta, filter]);
+  const geoFilter = !!(filter.region || filter.prov || filter.city || filter.am || filter.store);
+  const toggle = useCallback((key, value) => setFilter((f) => ({ ...f, [key]: f[key] === value ? null : value })), []);
   const wk = { deltaLabel: 'vs tuần trước', noPrevHint: 'chưa có tuần trước để so' };
+  const prevRange = useMemo(() => ({ from: dAdd(range.from, -7), to: dAdd(range.to, -7) }), [range.from, range.to]);
 
   const dayKeys = useMemo(() => { const out = []; for (let k = range.from; k <= range.to; k = dAdd(k, 1)) out.push(k); return out; }, [range]);
   const prevDayKeys = useMemo(() => dayKeys.map((k) => dAdd(k, -7)), [dayKeys]);
@@ -3332,8 +3388,13 @@ function WeeklyPage({ data }) {
     }
     return m;
   }, [targets, dayKeys]);
-  const targetTotal = useMemo(() => Object.values(targetByStore).reduce((a, v) => a + v, 0), [targetByStore]);
-  const targetStores = useMemo(() => Object.values(targetByStore).filter((v) => v > 0).length, [targetByStore]);
+  const targetInSlice = useMemo(() => {
+    const m = {};
+    for (const [id, tg] of Object.entries(targetByStore)) if (slice.keep(id)) m[id] = tg;
+    return m;
+  }, [targetByStore, slice]);
+  const targetTotal = useMemo(() => Object.values(targetInSlice).reduce((a, v) => a + v, 0), [targetInSlice]);
+  const targetStores = useMemo(() => Object.values(targetInSlice).filter((v) => v > 0).length, [targetInSlice]);
   const achievePct = targetTotal ? slice.revenue / targetTotal * 100 : null;
   const fcPct = targetTotal ? (slice.ads * slice.nStores * weekDays) / targetTotal * 100 : null;
   const adsTarget = weekDays && targetStores ? targetTotal / weekDays / targetStores : 0;
@@ -3395,47 +3456,13 @@ function WeeklyPage({ data }) {
     return defs.map((d) => {
       const prevBy = {};
       for (const r of aggDim(prevSlice.stores, meta, d.keyOf, null, prevSlice.nDays, weekDays)) prevBy[r.name] = r;
-      let rows = aggDim(slice.stores, meta, d.keyOf, targetByStore, slice.nDays, weekDays)
+      let rows = aggDim(slice.stores, meta, d.keyOf, targetInSlice, slice.nDays, weekDays)
         .map((r) => ({ ...r, prev: prevBy[r.name] || null }))
         .sort((a, b) => b.revenue - a.revenue);
       if (d.limit) rows = rows.slice(0, d.limit);
       return { ...d, rows };
     });
-  }, [slice, prevSlice, meta, targetByStore, weekDays]);
-
-  /* ---- Chi nhánh trong tuần ---- */
-  const storeRows = useMemo(() => slice.stores.map((st) => {
-    const m = meta[st.id] || {};
-    const prevSt = prevSlice.stores.find((x) => x.id === st.id);
-    return {
-      id: st.id, name: storeShort(m.storeName || st.name), city: m.city || UNASSIGNED,
-      revenue: st.revenue, bills: st.bills, prevRevenue: prevSt ? prevSt.revenue : null,
-      growth: prevSt && prevSt.revenue ? pctDiff(st.revenue, prevSt.revenue) : null,
-    };
-  }).sort((a, b) => b.revenue - a.revenue), [slice, prevSlice, meta]);
-  const lb = (r) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: r.growth });
-  const topWeekStores = useMemo(() => storeRows.slice(0, 10).map(lb), [storeRows]);
-  const topWeekGrowth = useMemo(() => storeRows.filter((r) => r.growth != null)
-    .sort((a, b) => b.growth - a.growth).slice(0, 10).map(lb), [storeRows]);
-  const topWeekDrop = useMemo(() => storeRows.filter((r) => r.growth != null)
-    .sort((a, b) => a.growth - b.growth).slice(0, 10).map(lb), [storeRows]);
-
-  /* Món trong tuần: danh sách tên món, mã món và số ngày có dữ liệu món - cho thẻ
-     "Món theo chi nhánh" dùng chung với trang Summary. */
-  const itemNames = useMemo(() => Object.values(cur.byItem || {})
-    .sort((a, b) => b.revenue - a.revenue).map((x) => x.name), [cur]);
-  const keysByName = useMemo(() => {
-    const m = {};
-    for (const d of Object.values(cur.days || {})) {
-      for (const [k, it] of Object.entries(d.items || {})) {
-        const set = (m[it.name] ||= []);
-        if (!set.includes(k)) set.push(k);
-      }
-    }
-    return m;
-  }, [cur]);
-  const itemDayCount = useMemo(() => Object.values(cur.days || {})
-    .filter((d) => d.items && Object.keys(d.items).length).length, [cur]);
+  }, [slice, prevSlice, meta, targetInSlice, weekDays]);
 
   const peak = useMemo(() => dayKeys.map((k, i) => ({ k, v: curByDay[i] })).filter((x) => x.v)
     .sort((a, b) => b.v - a.v), [dayKeys, curByDay]);
@@ -3484,11 +3511,15 @@ function WeeklyPage({ data }) {
   const prevDShare = prevSlice.tc ? (prevSlice.stores.reduce((a, st) => a + (st.dBills || 0), 0) / prevSlice.tc) * 100 : null;
   const adsCardH = barCardH(Math.max(...dims.map((d) => d.rows.length)), 30);
   const aovCardH = barCardH(Math.max(dims[1].rows.length, dims[2].rows.length), 32, 240, 380);
+  /* Bấm cột ở thẻ theo miền / tỉnh / AM -> lọc cả trang (thứ tự cột ngược với rows) */
+  const dimToggle = (d) => (p) => { const r = d.rows[d.rows.length - 1 - p.dataIndex]; if (r) toggle(d.k, r.name); };
 
   if (!cur.bills && !prev.bills) return <div className="empty">Chưa có dữ liệu cho tuần {dFull(range.from)} – {dFull(range.to)}.</div>;
 
   return (
     <>
+      <FilterChips filter={filter} set={setFilter} meta={meta} />
+
       {/* ============ 1. TỔNG QUAN TUẦN ============ */}
       <Section n="1" title="Tổng quan tuần"
         sub={`${dFull(range.from)} – ${dFull(range.to)} · so với ${dFull(prevDayKeys[0])} – ${dFull(prevDayKeys[weekDays - 1])}`} />
@@ -3567,12 +3598,13 @@ function WeeklyPage({ data }) {
         {dims.map((d) => (
           <div className="c4" key={'ads-' + d.k}>
             <ChartCard
-              title={`ADS theo ${d.lower}`} sub={d.limit ? `Top ${d.limit} theo doanh thu · so tuần trước` : 'So với tuần trước'}
+              title={`ADS theo ${d.lower}`} sub={d.limit ? `Top ${d.limit} theo doanh thu · so tuần trước · bấm để lọc` : 'So với tuần trước · bấm để lọc'}
               height={adsCardH}
               option={cmpBarOption(d.rows, {
                 value: (r) => r.ads, base: (r) => (r.prev ? r.prev.ads : 0),
                 valueName: 'ADS tuần này', baseName: 'Tuần trước', labelWidth: d.width,
               })}
+              onClick={dimToggle(d)}
               empty={!d.rows.length ? 'Chưa có dữ liệu.' : null}
               table={adsTable(d)}
             />
@@ -3582,7 +3614,7 @@ function WeeklyPage({ data }) {
 
       {/* ============ 3. AOV ============ */}
       <Section n="3" title="AOV — giá trị trung bình mỗi hoá đơn"
-        sub="AOV chung / tại chỗ + mang về (ET) / giao hàng (D), theo thứ và theo miền · tỉnh/TP · AM" />
+        sub="AOV chung / tại chỗ + mang về (ET) / giao hàng (D), theo thứ, theo 12 tháng và theo miền · tỉnh/TP · AM" />
 
       <div className="kpi-row">
         <Kpi tint="blue" label="AOV · chung" value={unit(slice.aov)} cur={slice.aov} prev={prevSlice.aov} {...wk} />
@@ -3594,10 +3626,10 @@ function WeeklyPage({ data }) {
       </div>
 
       <div className="dash">
-        <div className="c12">
+        <div className="c6">
           <ChartCard
             title="TC và AOV theo thứ" sub="Cột là số hoá đơn, đường là AOV — thấy ngay ngày đông khách mà giá trị đơn thấp"
-            height={300}
+            height={320}
             option={tcAovOption}
             table={(
               <table>
@@ -3612,13 +3644,18 @@ function WeeklyPage({ data }) {
             )}
           />
         </div>
+        <div className="c6">
+          <AovYearCard yearDays={data.yearDays} keep={slice.keep} busy={data.yearBusy} year={+range.from.slice(0, 4)}
+            geoFilter={geoFilter} height={320} />
+        </div>
         {dims.map((d) => (
           <div className="c4" key={'aov-' + d.k}>
             <ChartCard
               title={`AOV theo ${d.lower}`}
-              sub={d.k === 'region' ? 'Ba chuỗi cạnh nhau' : `Top ${d.limit} theo doanh thu · ba đường AOV chung / ET / D`}
+              sub={d.k === 'region' ? 'Ba chuỗi cạnh nhau · bấm để lọc' : `Top ${d.limit} theo doanh thu · ba đường AOV chung / ET / D`}
               height={aovCardH}
               option={d.k === 'region' ? aovDimOption(d.rows, d.width, 'tuần trước') : aovDimLineOption(d.rows, 'tuần trước')}
+              onClick={dimToggle(d)}
               empty={!d.rows.length ? 'Chưa có dữ liệu.' : null}
               table={aovTable(d)}
             />
@@ -3626,33 +3663,39 @@ function WeeklyPage({ data }) {
         ))}
       </div>
 
-      {/* ============ 4. MÓN ============ */}
-      <Section n="4" title="Món bán trong tuần" sub="Chọn món bất kỳ để xem số lượng bán và ADQ của món đó ở từng chi nhánh" />
+      {/* ============ 4. TARGET ============ */}
+      <Section n="4" title="Target — ai đang bám kịp, ai đang đuối"
+        sub="Tiến độ đạt target tuần (target tháng chia theo số ngày) của từng chi nhánh và từng tỉnh/TP" />
+      <TargetBlock slice={slice} meta={meta} targetByStore={targetByStore} toggle={toggle} />
 
-      <div className="dash">
-        <div className="c12">
-          <ItemStoreCard range={range} itemNames={itemNames} keysByName={keysByName} meta={meta}
-            keep={slice.keep} dayCount={itemDayCount} />
-        </div>
-      </div>
+      {/* ============ 5. CƠ CẤU DOANH THU ============ */}
+      <Section n="5" title="Cơ cấu doanh thu" sub="Doanh thu tuần đến từ đâu: miền · nguồn đơn · phương thức thanh toán · nhóm món — và số bán từng món ở từng chi nhánh" />
+      <MixBlock cur={cur} slice={slice} meta={meta} targetByStore={targetByStore} geoFilter={geoFilter}
+        range={range} toggle={toggle} word={WORD_WEEK} />
 
-      {/* ============ 5. CHI NHÁNH ============ */}
-      <Section n="5" title="Chi nhánh trong tuần" sub="Doanh thu cao nhất, tăng mạnh nhất và giảm mạnh nhất — đều so với tuần trước" />
+      {/* ============ 6. CHI NHÁNH ============ */}
+      <Section n="6" title="Chi nhánh" sub="Bản đồ, xếp hạng doanh thu và nhóm tăng / giảm — đều so với tuần trước" />
+      <BranchBlock slice={slice} sliceAll={sliceAll} prevSlice={prevSlice} meta={meta} targetByStore={targetByStore}
+        toggle={toggle} word={WORD_WEEK} boards={['high', 'low', 'up', 'down']} />
 
-      <div className="dash">
-        <div className="c4"><Leaderboard title="Top 10 doanh thu" sub="Tuần này" rows={topWeekStores} /></div>
-        <div className="c4"><Leaderboard title="Top 10 tăng mạnh nhất" sub="So với cùng chi nhánh tuần trước" rows={topWeekGrowth} /></div>
-        <div className="c4"><Leaderboard title="Top 10 giảm mạnh nhất" sub="So với cùng chi nhánh tuần trước" rows={topWeekDrop} /></div>
-      </div>
+      {/* ============ 7. ZONE AM/DM ============ */}
+      <Section n="7" title="Zone AM / DM" sub="Chọn một AM hoặc DM để xem số của cả zone và từng chi nhánh — so với tuần trước" />
+      <ZoneSection cur={cur} mom={prev} meta={meta} momRange={prevRange} range={range} cmp={CMP_WOW} />
 
-      {/* ============ 6. CUSTOMER SERVICE ============ */}
-      <Section n="6" title="Customer Service" nav="Customer Service" sub="Phiếu CSKH trong tuần — khiếu nại, phân loại lỗi, SLA, so với tuần trước" />
-      <CSSection cur={cur} cmpSales={prev} range={range} cmpRange={{ from: dAdd(range.from, -7), to: dAdd(range.to, -7) }} cmpLabel="tuần trước"
-        storesMeta={storesMeta} csStoreMap={data.csStoreMap}
+      {/* ============ 8. BÁO CÁO CHI NHÁNH ============ */}
+      <Section n="8" title="Báo cáo chi nhánh" sub="Chọn một chi nhánh để xem mọi chỉ số của chi nhánh đó trong tuần — so với tuần trước" />
+      <StoreSection cur={cur} mom={prev} meta={meta} range={range} momRange={prevRange}
+        targetByStore={targetByStore} yearDays={data.yearDays} focus={filter.store} cmp={CMP_WOW} />
+
+      {/* ============ 9. CUSTOMER SERVICE ============ */}
+      <Section n="9" title="Customer Service" nav="Customer Service" sub="Phiếu CSKH trong tuần — khiếu nại, phân loại lỗi, SLA, theo bộ lọc đang bật, so với tuần trước" />
+      <CSSection cur={cur} cmpSales={prev} range={range} cmpRange={prevRange} cmpLabel="tuần trước"
+        storesMeta={storesMeta} csStoreMap={data.csStoreMap} keep={slice.keep} geoFilter={geoFilter}
         onGoTickets={data.goPage ? () => data.goPage('tickets') : null} />
     </>
   );
 }
+
 
 function StoresPage({ data }) {
   const { cur } = data;
@@ -5253,7 +5296,7 @@ function TicketPage({ data }) {
 
 const PAGES = [
   { k: 'overview', l: 'Summary', s: 'Summary', ic: Ic.gauge, g: 'Bán hàng', usesRange: true, usesYear: true, t: ['Summary', ''], C: OverviewPage },
-  { k: 'weekly', l: 'Weekly Report', s: 'Weekly', ic: Ic.cal, g: 'Bán hàng', usesWeek: true, t: ['Weekly Report', ''], C: WeeklyPage },
+  { k: 'weekly', l: 'Weekly Report', s: 'Weekly', ic: Ic.cal, g: 'Bán hàng', usesWeek: true, usesYear: true, t: ['Weekly Report', ''], C: WeeklyPage },
   { k: 'stores', l: 'Cửa hàng', s: 'Cửa hàng', ic: Ic.store, g: 'Bán hàng', usesRange: true, t: ['Bảng cửa hàng', 'Xếp hạng toàn bộ cửa hàng theo khoảng ngày đang chọn'], C: StoresPage },
   { k: 'data', l: 'Data', s: 'Data', ic: Ic.table, g: 'Dữ liệu', usesRange: true, t: ['Data', 'Đã nạp tới đâu, ngày nào thiếu — và bảng từng dòng để đối soát'], C: DataPage },
   { k: 'tickets', l: 'Ticket Complain', s: 'Ticket', ic: Ic.chat, g: 'Dữ liệu', t: ['Ticket Complain', 'Nạp phiếu CSKH và xem đã nạp những ngày nào — phân tích ở mục Customer Service của Summary / Weekly'], C: TicketPage },
