@@ -85,13 +85,29 @@ function detectColumns(matrix) {
 // là dòng tổng cộng (không có Ngày) - aggregate() tự bỏ qua. Ngoài ra có 1 sheet "Tất cả
 // cửa hàng" chứa LẠI toàn bộ dòng của các sheet trên - phải bỏ, không thì doanh thu bị nhân
 // đôi. File không có sheet theo mã cửa hàng thì đọc mọi sheet có đủ cột.
+// Vùng dữ liệu khai trong file (!ref) có thể sai: file D05 ngày 20/10/2026 khai tới hàng triệu
+// dòng trống, sheet_to_json(defval) dựng từng dòng một nên đọc cả chục phút không xong. Tính lại
+// vùng theo các ô thật sự có trong sheet.
+function trimRange(ws, XLSX) {
+  if (!ws || !ws['!ref']) return ws;
+  let r1 = Infinity, c1 = Infinity, r2 = -1, c2 = -1;
+  for (const k of Object.keys(ws)) {
+    if (k[0] === '!') continue;
+    const { r, c } = XLSX.utils.decode_cell(k);
+    if (r < r1) r1 = r; if (r > r2) r2 = r; if (c < c1) c1 = c; if (c > c2) c2 = c;
+  }
+  if (r2 < 0) return ws;
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: r1, c: c1 }, e: { r: r2, c: c2 } });
+  return ws;
+}
+
 function rowsFromWorkbook(workbook, XLSX) {
   const storeSheets = workbook.SheetNames.filter((n) => /^\d+-/.test(n));
   const sheets = storeSheets.length ? storeSheets : workbook.SheetNames;
   const rows = [];
   const info = { sheets: 0, skippedSheets: [], found: new Set(), missing: [] };
   for (const name of sheets) {
-    const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null });
+    const matrix = XLSX.utils.sheet_to_json(trimRange(workbook.Sheets[name], XLSX), { header: 1, defval: null });
     const { row, map } = detectColumns(matrix);
     if (REQUIRED.some((f) => map[f] == null)) {
       info.skippedSheets.push(name);
