@@ -180,7 +180,10 @@ function parseInWorker(filePath, ms) {
       w.terminate();
       reject(new Error(`Đọc file ${path.basename(filePath)} quá ${ms / 60000} phút - file có thể hỏng, xem lại trên Fabi`));
     }, ms);
-    w.once('message', (m) => { clearTimeout(t); w.terminate(); resolve(m); });
+    w.on('message', (m) => {
+      if (m.log) { console.log(m.log); return; }
+      clearTimeout(t); w.terminate(); resolve(m);
+    });
     w.once('error', (e) => { clearTimeout(t); reject(e); });
   });
 }
