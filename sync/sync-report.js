@@ -4,7 +4,7 @@
  * bằng import-file.js.
  *
  * Luồng: đăng nhập Fabi -> mở D05 (mặc định đang lọc ngày hôm nay) -> Xuất
- * báo cáo tất cả cửa hàng -> chờ hộp "Tiến trình xuất báo cáo" xong -> tải file ->
+ * báo cáo tất cả cửa hàng -> tải file (thẳng, hoặc chờ hộp "Tiến trình xuất báo cáo") ->
  * gộp ngày × cửa hàng × món -> chỉ ghi những cửa hàng có số liệu thay đổi.
  *
  *   node sync-report.js            chạy thật (ngày hôm nay)
@@ -45,10 +45,12 @@ async function main() {
   const context = await browser.newContext({ acceptDownloads: true, timezoneId: 'Asia/Ho_Chi_Minh' });
   const page = await context.newPage();
 
-  // Không truyền --from/--to: ngày hôm nay (giữ bộ lọc mặc định của Fabi). Riêng lần
-  // chạy trước 7h sáng (lịch 6h15) thì chốt lại TRỌN ngày hôm qua - lần chạy cuối
-  // 23h15 chưa có doanh thu bán sau giờ đó. Chỉ ghi phần thay đổi nên không tốn thêm.
-  let days = arg('--from') ? dayList(arg('--from'), arg('--to') || arg('--from')) : [vnHour() < 7 ? vnYesterday() : null];
+  // Không truyền --from/--to: ngày hôm nay (giữ bộ lọc mặc định của Fabi). Lần chạy trước
+  // 10h sáng thì chốt thêm TRỌN ngày hôm qua (2 tab song song) - lịch GitHub hay trễ hoặc
+  // bỏ lượt (có ngày chỉ chạy 4-5 lần), lượt tối có thể chưa có số bán sau giờ đó.
+  // Chỉ ghi phần thay đổi nên chạy lại ngày hôm qua không tốn thêm.
+  let days = arg('--from') ? dayList(arg('--from'), arg('--to') || arg('--from'))
+    : vnHour() < 10 ? [vnYesterday(), vnToday()] : [null];
   // --skip-done: bỏ các ngày đã có syncState (đã nạp xong) - chạy lại sau khi bị ngắt giữa chừng
   if (db && days[0] && process.argv.includes('--skip-done')) {
     const done = await Promise.all(days.map((d) => db.collection('syncState').doc(`d05_${d}`).get()));
@@ -160,6 +162,7 @@ function vnNow() {
 }
 const vnHour = () => vnNow().getUTCHours();
 const vnYesterday = () => new Date(vnNow().getTime() - 864e5).toISOString().slice(0, 10);
+const vnToday = () => vnNow().toISOString().slice(0, 10);
 
 function assertEnv(names) {
   const missing = names.filter((n) => !process.env[n]);
@@ -271,17 +274,28 @@ function dialog(page, title) {
   return page.locator('.kit-modal__container:visible').filter({ hasText: title });
 }
 
-// Bấm "Xuất báo cáo tất cả cửa hàng" -> hộp "Tiến trình xuất báo cáo" hiện %
-// (92 cửa hàng mất ~4 phút) -> xong thì chính hộp đó có nút "Tải file"
-// (.ep__download). Hộp này chỉ theo dõi lần xuất vừa bấm, nên không lẫn với file
-// người khác trong "Lịch sử xuất".
+// Bấm "Xuất báo cáo tất cả cửa hàng". Fabi có 2 kiểu phản hồi:
+//  - cũ: hộp "Tiến trình xuất báo cáo" hiện % (92 cửa hàng ~4 phút), xong thì chính hộp đó
+//    có nút "Tải file" (.ep__download). Hộp chỉ theo dõi lần xuất vừa bấm nên không lẫn với
+//    file người khác trong "Lịch sử xuất".
+//  - từ 20/10/2026: trình duyệt tải thẳng file (chuyển tới link S3 .xlsx), không hiện hộp.
+// Nên vừa chờ hộp vừa chờ sự kiện tải file, cái nào tới trước thì đi nhánh đó.
 async function exportAndDownload(page, day) {
   await page.getByRole('button', { name: /Xuất báo cáo/ }).click();
+  const direct = page.waitForEvent('download', { timeout: 90000 }).catch(() => null);
   await page.getByText('Xuất báo cáo tất cả cửa hàng', { exact: true }).click();
 
   const progress = dialog(page, 'Tiến trình xuất báo cáo');
   const already = dialog(page, 'Dữ liệu này đã được xuất trước đó');
-  await progress.or(already).first().waitFor({ timeout: 60000 });
+  const modal = progress.or(already).first().waitFor({ timeout: 90000 }).then(() => 'modal', () => null);
+  const first = await Promise.race([direct.then((d) => (d ? { d } : null)), modal]);
+  const viaModal = first === 'modal' || (!first && (await modal) === 'modal');
+  if (!viaModal) {
+    const d = first && first.d ? first.d : await direct;
+    if (!d) throw new Error('Bấm xuất báo cáo nhưng không thấy hộp tiến trình lẫn file tải về (90 giây).');
+    return saveDownload(d, day);
+  }
+
   if (await already.isVisible()) {
     // Chưa gặp với dữ liệu hôm nay; nếu gặp thì chọn xuất mới, không lấy file cũ.
     const again = already.getByRole('button', { name: /Xuất lại|Xuất mới|Tiếp tục xuất/ });
@@ -304,6 +318,14 @@ async function exportAndDownload(page, day) {
   }
 
   const [download] = await Promise.all([page.waitForEvent('download', { timeout: 120000 }), downloadBtn.click()]);
+  const downloadPath = await saveDownload(download, day);
+  // Hộp tiến trình không tự đóng - để nguyên thì nó chặn cú bấm chọn ngày kế tiếp.
+  await progress.locator('button.close').click().catch(() => {});
+  await progress.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+  return downloadPath;
+}
+
+async function saveDownload(download, day) {
   // Tên file dạng d05-01-09-2026-to-01-09-2026.xlsx - chặn trường hợp chọn ngày trượt
   const tag = day ? day.split('-').reverse().join('-') : null;
   if (tag && !download.suggestedFilename().includes(`${tag}-to-${tag}`)) {
@@ -311,9 +333,6 @@ async function exportAndDownload(page, day) {
   }
   const downloadPath = path.join(DOWNLOAD_DIR, download.suggestedFilename());
   await download.saveAs(downloadPath);
-  // Hộp tiến trình không tự đóng - để nguyên thì nó chặn cú bấm chọn ngày kế tiếp.
-  await progress.locator('button.close').click().catch(() => {});
-  await progress.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
   return downloadPath;
 }
 
