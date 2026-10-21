@@ -5,7 +5,18 @@ on:
     # Phút 15 mỗi giờ, từ 6h15 đến 23h15 giờ VN (cron tính giờ UTC = giờ VN - 7).
     # Lần 6h15 chốt lại trọn ngày hôm qua, các lần sau lấy ngày hôm nay.
     - cron: '15 0-16,23 * * *'
-  workflow_dispatch: {}
+  # Chạy tay trên tab Actions; điền từ ngày / tới ngày (YYYY-MM-DD) để nạp bù các ngày bị
+  # thiếu (xuất lại trọn ngày, chỉ ghi chi nhánh có số thay đổi). Để trống = như lịch chạy.
+  workflow_dispatch:
+    inputs:
+      from:
+        description: 'Nạp bù từ ngày (YYYY-MM-DD), để trống = như lịch chạy'
+        required: false
+        default: ''
+      to:
+        description: 'Tới ngày (YYYY-MM-DD), để trống = bằng từ ngày'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -14,7 +25,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: ${{ github.event.inputs.from && 90 || 20 }}
     defaults:
       run:
         working-directory: sync
@@ -30,7 +41,11 @@ jobs:
           FABI_EMAIL: ${{ secrets.FABI_EMAIL }}
           FABI_PASSWORD: ${{ secrets.FABI_PASSWORD }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: node sync-report.js
+          FROM: ${{ github.event.inputs.from }}
+          TO: ${{ github.event.inputs.to }}
+        run: |
+          if [ -n "$FROM" ]; then node sync-report.js --from "$FROM" --to "${TO:-$FROM}" --parallel 3
+          else node sync-report.js; fi
       # Repo công khai 60 ngày không có commit thì GitHub tự tắt lịch chạy. Gọi API
       # "enable" lên chính workflow này để đếm lại từ đầu - không cần tạo commit rác.
       - name: Giữ lịch chạy

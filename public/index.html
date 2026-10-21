@@ -3450,7 +3450,7 @@ function MixBlock({ cur, slice, meta, targetByStore, geoFilter, range, toggle, w
 
 /* Mục Chi nhánh: bản đồ, top theo doanh thu và các bảng xếp hạng.
    boards chọn bảng nào hiện: high / low (doanh thu), up / down (tăng trưởng so kỳ trước). */
-function BranchBlock({ slice, sliceAll, prevSlice, meta, targetByStore, toggle, word, boards = ['high', 'low', 'down'] }) {
+function BranchBlock({ slice, sliceAll, prevSlice, meta, targetByStore, toggle, word, sum, tgtSpan, boards = ['high', 'low', 'down'] }) {
   const mapReady = useVnMap();
 
   /* Bản đồ: chấm theo toạ độ từng chi nhánh, màu theo miền */
@@ -3514,7 +3514,17 @@ function BranchBlock({ slice, sliceAll, prevSlice, meta, targetByStore, toggle, 
   }, [toggle]);
 
   /* Xếp hạng chi nhánh */
-  const storeRows = useMemo(() => storeRowsOf(slice, meta, targetByStore), [slice, meta, targetByStore]);
+  /* FC% từng chi nhánh = dự báo doanh thu tới hết kỳ target (tgtSpan: cả tháng ở Summary, cả
+     tuần ở Weekly; ngày chưa bán lấy TB đúng thứ đó của chính chi nhánh) / target. */
+  const allStoreRows = useMemo(() => storeRowsOf(slice, meta, targetByStore).map((r) => {
+    if (!r.target || !tgtSpan || !sum) return { ...r, fc: null };
+    const byDate = {};
+    for (const [date, d] of Object.entries(sum.days || {})) { const st = (d.stores || {})[r.id]; if (st) byDate[date] = { revenue: st.revenue || 0 }; }
+    const f = weekdayForecast(byDate, tgtSpan.from, tgtSpan.to);
+    return { ...r, fcRev: f ? f.total : null, fc: f ? f.total / r.target * 100 : null };
+  }), [slice, meta, targetByStore, sum, tgtSpan && tgtSpan.from, tgtSpan && tgtSpan.to]);
+  const [fcOnly, setFcOnly] = useState(false);
+  const storeRows = useMemo(() => (fcOnly ? allStoreRows.filter((r) => r.fc != null && r.fc >= 95) : allStoreRows), [allStoreRows, fcOnly]);
   const topStores = storeRows.slice(0, 12).reverse();
   const storeOption = useMemo(() => ({
     ...ANIM,
@@ -3522,7 +3532,8 @@ function BranchBlock({ slice, sliceAll, prevSlice, meta, targetByStore, toggle, 
     tooltip: { ...TIP, trigger: 'item', formatter: (p) => {
       const r = topStores[p.dataIndex];
       return `<b>${r.name}</b><br/>${r.city} · ${r.region}<br/>Doanh thu <b>${money(r.revenue)} đ</b><br/>Hoá đơn <b>${money(r.bills)}</b>`
-        + (r.target ? `<br/>Target ${money(r.target)} đ · đạt <b>${pct1(r.revenue / r.target * 100)}</b>` : '');
+        + (r.target ? `<br/>Target ${money(r.target)} đ · đạt <b>${pct1(r.revenue / r.target * 100)}</b>` : '')
+        + (r.fc != null ? `<br/>FC ${money(r.fcRev)} đ · <b>${pct1(r.fc)}</b> target` : '');
     } },
     xAxis: { type: 'value', show: false },
     yAxis: { type: 'category', data: topStores.map((r) => r.name), ...AXIS_STYLE, axisLine: { show: false }, splitLine: { show: false },
@@ -3545,7 +3556,7 @@ function BranchBlock({ slice, sliceAll, prevSlice, meta, targetByStore, toggle, 
 
   /* Chỉ xếp hạng cửa hàng thật (đã gán City) - loại các mã nội bộ (PĐT/CSKH...) chưa gán Chi nhánh */
   const lists = useMemo(() => {
-    const real = storeRows.filter((r) => r.city !== UNASSIGNED);
+    const real = allStoreRows.filter((r) => r.city !== UNASSIGNED);
     const row = (r, delta) => ({ id: r.id, name: r.name, sub: r.city, value: unit(r.revenue), delta: delta === undefined ? growthOf(r) : delta });
     const grown = real.map((r) => ({ r, g: growthOf(r) })).filter((x) => x.g != null);
     return {
@@ -3554,7 +3565,7 @@ function BranchBlock({ slice, sliceAll, prevSlice, meta, targetByStore, toggle, 
       up: [...grown].sort((a, b) => b.g - a.g).slice(0, 10).map(({ r, g }) => row(r, g)),
       down: [...grown].sort((a, b) => a.g - b.g).slice(0, 10).map(({ r, g }) => row(r, g)),
     };
-  }, [storeRows, prevRevByStore]);
+  }, [allStoreRows, prevRevByStore]);
   const boardDefs = {
     high: ['Top 10 chi nhánh cao nhất', `Doanh thu ${word.now} · bấm để lọc`],
     low: ['Top 10 chi nhánh thấp nhất', `Doanh thu ${word.now} · bấm để lọc`],
@@ -3586,17 +3597,23 @@ function BranchBlock({ slice, sliceAll, prevSlice, meta, targetByStore, toggle, 
 
       <div className="c8">
         <ChartCard
-          title="Top chi nhánh theo doanh thu" sub={`${storeRows.length} chi nhánh · bấm để lọc`} height={520}
+          title="Top chi nhánh theo doanh thu"
+          sub={fcOnly ? `${storeRows.length}/${allStoreRows.length} chi nhánh dự báo đạt từ 95% target · bấm để lọc` : `${storeRows.length} chi nhánh · bấm để lọc`}
+          height={520}
           option={storeOption} onClick={onStoreClick}
+          empty={fcOnly && !storeRows.length ? 'Chưa chi nhánh nào dự báo đạt từ 95% target.' : null}
+          extra={<button className={cls('ch-tab', fcOnly && 'on')} title="Chỉ hiện chi nhánh có FC (dự báo tới hết kỳ target / target) từ 95% trở lên"
+            onClick={() => setFcOnly((v) => !v)}>FC ≥ 95%</button>}
           table={(
             <table>
-              <thead><tr><th>#</th><th>Chi nhánh</th><th className="r">Doanh thu</th><th className="r">Target</th><th className="r">Đạt</th><th className="r">vs {word.prev}</th></tr></thead>
+              <thead><tr><th>#</th><th>Chi nhánh</th><th className="r">Doanh thu</th><th className="r">Target</th><th className="r">Đạt</th><th className="r">FC</th><th className="r">vs {word.prev}</th></tr></thead>
               <tbody>{storeRows.map((r, i) => {
                 const g = growthOf(r);
                 return (
                   <tr key={r.id}><td style={{ color: INK.mute }}>{i + 1}</td><td>{r.name}</td>
                     <td className="r">{moneyD(r.revenue)}</td><td className="r">{r.target ? moneyD(r.target) : '—'}</td>
                     <td className="r">{r.target ? pct1(r.revenue / r.target * 100) : '—'}</td>
+                    <td className={cls('r', r.fc != null && (r.fc >= 95 ? 'up' : 'dn'))}>{r.fc == null ? '—' : pct1(r.fc)}</td>
                     <td className={cls('r', g != null && (g >= 0 ? 'up' : 'dn'))}>{g == null ? '—' : (g >= 0 ? '+' : '') + pct1(g)}</td></tr>
                 );
               })}</tbody>
@@ -3993,6 +4010,7 @@ function OverviewPage({ data }) {
       {/* ============ 7. CHI NHÁNH ============ */}
       <Section n="7" title="Chi nhánh" sub="Bản đồ, xếp hạng doanh thu và nhóm tăng trưởng — tất cả đều so với kỳ trước" />
       <BranchBlock slice={slice} sliceAll={sliceAll} prevSlice={prevSlice} meta={meta} targetByStore={targetByStore}
+        sum={cur} tgtSpan={{ from: tgtFrom, to: tgtTo }}
         toggle={toggle} word={WORD_RANGE} />
 
       {/* ============ 8. ZONE AM/DM ============ */}
@@ -4360,6 +4378,7 @@ function WeeklyPage({ data }) {
       {/* ============ 7. CHI NHÁNH ============ */}
       <Section n="7" title="Chi nhánh" sub="Bản đồ, xếp hạng doanh thu và nhóm tăng / giảm — đều so với tuần trước" />
       <BranchBlock slice={slice} sliceAll={sliceAll} prevSlice={prevSlice} meta={meta} targetByStore={targetByStore}
+        sum={cur} tgtSpan={{ from: range.from, to: range.to }}
         toggle={toggle} word={WORD_WEEK} boards={['high', 'low', 'up', 'down']} />
 
       {/* ============ 8. ZONE AM/DM ============ */}
@@ -5282,8 +5301,7 @@ function csStats(list) {
   };
 }
 /* Ô chênh lệch so với kỳ so sánh ở bảng CS: tăng = xấu (đỏ), giảm = tốt (xanh); rê chuột xem số kỳ trước */
-const csRate = (v) => (v == null ? '—' : v.toFixed(3).replace('.', ',') + '%');
-const csPp = (v) => (v > 0 ? '+' : '') + v.toFixed(3).replace('.', ',') + '%';
+const csPp1 = (v) => (v > 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + ' điểm %';
 const csVsCell = (d, fmt, title) => (
   <td className={cls('r', d != null && (d > 0 ? 'dn' : d < 0 ? 'up' : ''))} title={title} style={{ fontSize: 12 }}>{d == null ? '—' : d === 0 ? '0' : fmt(d)}</td>
 );
@@ -5507,7 +5525,7 @@ function CSSection({ cur, cmpSales, range, cmpRange, cmpLabel, storesMeta, csSto
       const r = (m[nm] ||= { name: nm, id, region: t.region, n: 0, kn: 0, sai: 0, types: {} });
       r.n++;
       if (csIsComplaint(t)) r.kn++;
-      if (csVerdict(t) === 'sai') r.sai++;
+      if (csIsComplaint(t) && csVerdict(t) === 'sai') r.sai++;
       if (t.type1) r.types[t.type1] = (r.types[t.type1] || 0) + 1;
     }
     const prev = {};
@@ -5525,14 +5543,17 @@ function CSSection({ cur, cmpSales, range, cmpRange, cmpLabel, storesMeta, csSto
       const k = keyOf(t) || 'Chưa rõ';
       const r = (m[k] ||= { name: k, n: 0, kn: 0, sai: 0, dung: 0, slaMiss: 0 });
       r.n++;
-      if (csIsComplaint(t)) r.kn++;
-      const v = csVerdict(t); if (v === 'sai') r.sai++; if (v === 'dung') r.dung++;
+      if (csIsComplaint(t)) {
+        r.kn++;
+        const v = csVerdict(t); if (v === 'sai') r.sai++; if (v === 'dung') r.dung++;
+      }
       if (t.sla && !noAccent(t.sla).startsWith('dap ung')) r.slaMiss++;
     }
     return Object.values(m).sort((a, b) => b.kn - a.kn);
   };
-  /* Bảng theo zone (DM / miền / thành phố): % khiếu nại, % sai QT = số khiếu nại, số ca sai QT
-     / TC zone trong kỳ. Zone = chi nhánh có giá trị đó trong danh mục chi nhánh; giá trị chưa có
+  /* Bảng theo zone (DM / miền / thành phố): % khiếu nại = khiếu nại / tổng phiếu của zone,
+     % sai QT = ca khiếu nại kết luận cửa hàng sai quy trình / số khiếu nại của zone;
+     KN/10k HĐ = khiếu nại / TC zone × 10.000. Zone = chi nhánh có giá trị đó trong danh mục chi nhánh; giá trị chưa có
      trong danh mục thì lấy các chi nhánh mà phiếu của zone đó ghép về. */
   const zoneKey = (s) => noAccent(String(s || '')).toLowerCase().replace(/\s+/g, ' ').trim();
   const zoneRows = (tkKey, metaField) => {
@@ -5550,9 +5571,10 @@ function CSSection({ cur, cmpSales, range, cmpRange, cmpLabel, storesMeta, csSto
     const prev = {};
     for (const r of groupRows(tkKey, listPrev)) prev[r.name] = r;
     return groupRows(tkKey).map((r) => {
-      const tc = tcIn(r.name, cur), p = prev[r.name] || { kn: 0, sai: 0 }, ptc = tcIn(r.name, cmpSales);
-      return { ...r, tc, knRate: tc ? r.kn / tc * 100 : null, saiRate: tc ? r.sai / tc * 100 : null,
-        prevKn: p.kn, prevSai: p.sai, prevKnRate: ptc ? p.kn / ptc * 100 : null, prevSaiRate: ptc ? p.sai / ptc * 100 : null };
+      const tc = tcIn(r.name, cur), p = prev[r.name] || { n: 0, kn: 0, sai: 0 };
+      return { ...r, tc, per10k: tc ? r.kn / tc * 1e4 : null,
+        knRate: r.n ? r.kn / r.n * 100 : null, saiRate: r.kn ? r.sai / r.kn * 100 : null,
+        prevKn: p.kn, prevSai: p.sai, prevKnRate: p.n ? p.kn / p.n * 100 : null, prevSaiRate: p.kn ? p.sai / p.kn * 100 : null };
     });
   };
   const metaOf = (t) => meta[storeOf(t)] || {};
@@ -5713,20 +5735,20 @@ function CSSection({ cur, cmpSales, range, cmpRange, cmpLabel, storesMeta, csSto
         {[['c6', 'Theo miền', 'Miền', regionRows], ['c6', 'Theo DM phụ trách', 'DM', dmRows], ['c12', 'Theo thành phố', 'Thành phố', cityRows]].map(([col, title, head, rows]) => (
           <div className={col} key={title}>
             <div className="card" style={{ marginBottom: 0 }}>
-              <div className="card-h"><div><h3>{title}</h3><p>% khiếu nại, % sai QT = số khiếu nại, số ca sai quy trình / TC (hoá đơn) của zone trong kỳ · cột "vs" = chênh lệch so với {cmpLabel} (số ca, hoặc điểm % với cột tỉ lệ) · đỏ = tăng, xanh = giảm · rê chuột xem số kỳ trước{hasPrev ? '' : ' (kỳ so sánh chưa nạp đủ phiếu nên chưa so)'}</p></div></div>
+              <div className="card-h"><div><h3>{title}</h3><p>% khiếu nại = khiếu nại / tổng phiếu của zone · % sai QT = khiếu nại kết luận cửa hàng sai quy trình / tổng khiếu nại · KN/10k HĐ = khiếu nại trên 10.000 hoá đơn · cột "vs" = chênh lệch so với {cmpLabel} (số ca, hoặc điểm % với cột tỉ lệ) · đỏ = tăng, xanh = giảm · rê chuột xem số kỳ trước{hasPrev ? '' : ' (kỳ so sánh chưa nạp đủ phiếu nên chưa so)'}</p></div></div>
               <div className="scroll-x" style={{ maxHeight: 440, overflowY: 'auto' }}><table className="tb">
-                <thead><tr><th>{head}</th><th className="r">Phiếu</th><th className="r">Khiếu nại</th><th className="r">vs</th><th className="r">Sai QT</th><th className="r">vs</th><th className="r">TC zone</th>
+                <thead><tr><th>{head}</th><th className="r">Phiếu</th><th className="r">Khiếu nại</th><th className="r">vs</th><th className="r">Sai QT</th><th className="r">vs</th><th className="r">KN/10k HĐ</th>
                   <th className="r">% khiếu nại</th><th className="r">vs</th><th className="r">% sai QT</th><th className="r">vs</th></tr></thead>
                 <tbody>{rows.map((r) => (
                   <tr key={r.name}><td style={{ fontWeight: 600 }}>{r.name}</td><td className="r">{r.n}</td><td className="r"><b>{r.kn}</b></td>
                     {csVsCell(hasPrev ? r.kn - r.prevKn : null, (v) => (v > 0 ? '+' : '') + v, cmpLabel + ': ' + r.prevKn)}
                     <td className={cls('r', r.sai && 'dn')}>{r.sai}</td>
                     {csVsCell(hasPrev ? r.sai - r.prevSai : null, (v) => (v > 0 ? '+' : '') + v, cmpLabel + ': ' + r.prevSai)}
-                    <td className="r">{r.tc ? money(r.tc) : '—'}</td>
-                    <td className="r">{csRate(r.knRate)}</td>
-                    {csVsCell(hasPrev && r.knRate != null && r.prevKnRate != null ? r.knRate - r.prevKnRate : null, csPp, cmpLabel + ': ' + csRate(r.prevKnRate))}
-                    <td className="r">{csRate(r.saiRate)}</td>
-                    {csVsCell(hasPrev && r.saiRate != null && r.prevSaiRate != null ? r.saiRate - r.prevSaiRate : null, csPp, cmpLabel + ': ' + csRate(r.prevSaiRate))}</tr>
+                    <td className="r" title={r.tc ? 'TC zone ' + money(r.tc) : ''}>{r.per10k == null ? '—' : r.per10k.toFixed(2).replace('.', ',')}</td>
+                    <td className="r">{r.knRate == null ? '—' : pct1(r.knRate)}</td>
+                    {csVsCell(hasPrev && r.knRate != null && r.prevKnRate != null ? r.knRate - r.prevKnRate : null, csPp1, cmpLabel + ': ' + (r.prevKnRate == null ? '—' : pct1(r.prevKnRate)))}
+                    <td className="r">{r.saiRate == null ? '—' : pct1(r.saiRate)}</td>
+                    {csVsCell(hasPrev && r.saiRate != null && r.prevSaiRate != null ? r.saiRate - r.prevSaiRate : null, csPp1, cmpLabel + ': ' + (r.prevSaiRate == null ? '—' : pct1(r.prevSaiRate)))}</tr>
                 ))}</tbody></table></div>
             </div>
           </div>
