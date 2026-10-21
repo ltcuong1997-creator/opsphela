@@ -728,8 +728,11 @@ const money = (v) => n0(v).toLocaleString('vi-VN');
    do sync/lib.js tính cho ngày Fabi, còn ngày lấy từ Excel thì đã là số đó. Không quy đổi
    lần nữa ở đây - giữ tên hàm để các chỗ gọi không phải đổi. */
 const adjRevenue = (rev) => rev || 0;
-/* AOV = doanh thu / số hoá đơn (TC). ADS = doanh thu trung bình mỗi chi nhánh mỗi ngày
-   = doanh thu / số ngày CÓ doanh thu / số chi nhánh CÓ doanh thu. */
+/* AOV = doanh thu / số hoá đơn (TC). ADS = doanh thu trung bình mỗi chi nhánh mỗi ngày BÁN:
+   một chi nhánh = doanh thu / số ngày chi nhánh đó có doanh thu (khai trương ngày 5, xem tới
+   ngày 20 là chia 16 ngày, ngày 0đ không chia). Gộp nhiều chi nhánh (hệ thống, miền, AM...) =
+   tổng doanh thu / tổng số ngày bán của từng chi nhánh (storeDaysOf), không lấy số ngày × số
+   chi nhánh. adsOf(revenue, nDays, 1) vẫn dùng cho một chi nhánh. */
 const aovOf = (revenue, bills) => (bills ? revenue / bills : 0);
 const adsOf = (revenue, nDays, nStores) => (nDays && nStores ? revenue / nDays / nStores : 0);
 const toNum = (v) => {
@@ -915,8 +918,10 @@ function summarize(days) {
     s.days[d.date] = d;
     for (const [id, st] of Object.entries(d.stores || {})) {
       s.stores.add(id);
-      const x = (s.byStore[id] ||= { id, name: st.name, revenue: 0, bills: 0, quantity: 0, commission: 0, etRev: 0, etBills: 0, dRev: 0, dBills: 0 });
+      const x = (s.byStore[id] ||= { id, name: st.name, revenue: 0, bills: 0, quantity: 0, commission: 0, etRev: 0, etBills: 0, dRev: 0, dBills: 0, days: 0, tcDays: 0 });
       x.revenue += st.revenue; x.bills += st.bills; x.quantity += st.quantity; x.commission += st.commission || 0;
+      if (st.revenue > 0) x.days++;
+      if (st.bills > 0) x.tcDays++;
       x.etRev += (st.et && st.et.revenue) || 0; x.etBills += (st.et && st.et.bills) || 0;
       x.dRev += (st.dlv && st.dlv.revenue) || 0; x.dBills += (st.dlv && st.dlv.bills) || 0;
       s.rows.push({ date: d.date, id, name: st.name, revenue: st.revenue, bills: st.bills, quantity: st.quantity, updatedAt: d.updatedAt });
@@ -1403,11 +1408,13 @@ function sliceOf(s, meta, f) {
   const revenue = adjRevenue(t.raw, t.commission);
   const nDays = Object.keys(byDate).filter((d) => byDate[d].revenue > 0).length;
   const nStores = stores.filter((st) => st.revenue > 0).length;
+  const storeDays = stores.reduce((a, st) => a + (st.days || 0), 0);
+  const tcStoreDays = stores.reduce((a, st) => a + (st.tcDays || 0), 0);
   return {
-    keep, stores, byDate, revenue, tc: t.bills, quantity: t.quantity, commission: t.commission, nDays, nStores,
+    keep, stores, byDate, revenue, tc: t.bills, quantity: t.quantity, commission: t.commission, nDays, nStores, storeDays,
     aov: aovOf(revenue, t.bills),
-    ads: adsOf(revenue, nDays, nStores),
-    adtc: adsOf(t.bills, nDays, stores.filter((st) => st.bills > 0).length),
+    ads: storeDays ? revenue / storeDays : 0,
+    adtc: tcStoreDays ? t.bills / tcStoreDays : 0,
     /* Chưa có dữ liệu nguồn đơn thì để null -> ô chỉ số hiện "—", không đoán bừa. */
     aovET: t.etBills ? aovOf(t.etRev, t.etBills) : null,
     aovD: t.dBills ? aovOf(t.dRev, t.dBills) : null,
@@ -1416,14 +1423,13 @@ function sliceOf(s, meta, f) {
 
 /* Gộp các cửa hàng của một lát cắt theo MỘT chiều (miền / tỉnh / AM) rồi tính sẵn
    ADS - ADS target - AOV - AOV ET/D cho từng nhóm.
-   nDays dùng chung cho mọi nhóm (số ngày có dữ liệu của cả lát cắt) để các cột ADS
-   so được với nhau; chia theo số ngày riêng của từng nhóm thì nhóm mới mở vài ngày
-   sẽ vọt lên đầu bảng dù đóng góp rất nhỏ. */
+   ADS nhóm = doanh thu nhóm / tổng số ngày bán (doanh thu > 0) của từng chi nhánh trong
+   nhóm - chi nhánh mới khai trương chỉ góp số ngày đã bán. (nDays không còn dùng.) */
 function aggDim(stores, meta, keyOf, targetById, nDays, rangeDays) {
   const agg = {};
   const slot = (k) => (agg[k] ||= {
     name: k, raw: 0, commission: 0, bills: 0, quantity: 0,
-    etRev: 0, etBills: 0, dRev: 0, dBills: 0, target: 0, stores: 0, sRev: 0, sET: 0, sD: 0, tStores: 0,
+    etRev: 0, etBills: 0, dRev: 0, dBills: 0, target: 0, stores: 0, sRev: 0, sET: 0, sD: 0, tStores: 0, sd: 0, td: 0,
   });
   for (const st of stores) {
     const x = slot(keyOf(meta[st.id] || {}) || UNASSIGNED);
@@ -1431,6 +1437,7 @@ function aggDim(stores, meta, keyOf, targetById, nDays, rangeDays) {
     x.etRev += st.etRev || 0; x.etBills += st.etBills || 0;
     x.dRev += st.dRev || 0; x.dBills += st.dBills || 0;
     x.stores++;
+    x.sd += st.days || 0; x.td += st.tcDays || 0;
     if (st.revenue > 0) x.sRev++;
     if (st.etRev > 0) x.sET++;
     if (st.dRev > 0) x.sD++;
@@ -1444,7 +1451,8 @@ function aggDim(stores, meta, keyOf, targetById, nDays, rangeDays) {
     const revenue = adjRevenue(x.raw, x.commission);
     return {
       ...x, revenue,
-      ads: adsOf(revenue, nDays, x.sRev),
+      ads: x.sd ? revenue / x.sd : 0,
+      adtc: x.td ? x.bills / x.td : 0,
       adsTarget: rangeDays && x.tStores ? x.target / rangeDays / x.tStores : 0,
       aov: aovOf(revenue, x.bills),
       aovET: x.etBills ? aovOf(x.etRev, x.etBills) : null,
@@ -1917,6 +1925,7 @@ function aovDimOption(rows, labelWidth, cmpLabel) {
 function zoneAgg(sum, meta, dim, zone) {
   const t = { revenue: 0, bills: 0, etRev: 0, etBills: 0, dRev: 0, dBills: 0 };
   const per = {}, dayCount = {}, daySet = new Set();
+  let tcStoreDays = 0;
   for (const [date, d] of Object.entries(sum.days || {})) {
     for (const [id, st] of Object.entries(d.stores || {})) {
       if (((meta[id] || {})[dim] || UNASSIGNED) !== zone) continue;
@@ -1929,8 +1938,10 @@ function zoneAgg(sum, meta, dim, zone) {
       t.etRev += et.revenue || 0; t.etBills += et.bills || 0;
       t.dRev += dl.revenue || 0; t.dBills += dl.bills || 0;
       if (st.revenue > 0) { dayCount[id] = (dayCount[id] || 0) + 1; daySet.add(date); }
+      if (st.bills > 0) tcStoreDays++;
     }
   }
+  const storeDays = Object.values(dayCount).reduce((a, v) => a + v, 0);
   const stores = Object.values(per).map((p) => ({
     ...p, days: dayCount[p.id] || 0,
     aov: aovOf(p.revenue, p.bills),
@@ -1946,8 +1957,8 @@ function zoneAgg(sum, meta, dim, zone) {
       aov: aovOf(t.revenue, t.bills),
       aovET: t.etBills ? aovOf(t.etRev, t.etBills) : null,
       aovD: t.dBills ? aovOf(t.dRev, t.dBills) : null,
-      ads: adsOf(t.revenue, daySet.size, active),
-      adtc: adsOf(t.bills, daySet.size, active),
+      ads: storeDays ? t.revenue / storeDays : 0,
+      adtc: tcStoreDays ? t.bills / tcStoreDays : 0,
     },
   };
 }
@@ -4180,7 +4191,7 @@ function WeeklyPage({ data }) {
           <td className="r">{money2(r.ads)}</td>
           <td className="r">{r.adsTarget ? money2(r.adsTarget) : '—'}</td>
           <td className="r">{r.adsTarget ? pct1(r.ads / r.adsTarget * 100) : '—'}</td>
-          <td className="r">{money(adsOf(r.bills, slice.nDays, r.sRev))}</td>
+          <td className="r">{money(r.adtc)}</td>
           {delta(r.prev && r.prev.ads ? pctDiff(r.ads, r.prev.ads) : null)}
         </tr>
       ))}</tbody>
