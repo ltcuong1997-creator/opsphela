@@ -21,7 +21,8 @@
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
-const { loadEnv, initFirebase, readRows, aggregate, writeChanged, summarize } = require('./lib');
+const { Worker } = require('worker_threads');
+const { loadEnv, initFirebase, writeChanged, summarize } = require('./lib');
 
 const FABI_BASE_URL = 'https://fabi.ipos.vn';
 const REPORT_URL = `${FABI_BASE_URL}/report/accounting/sale-audit`; // D05
@@ -126,7 +127,8 @@ async function main() {
     );
     if (failed.length) throw new Error(`Các ngày lỗi, chạy lại riêng: ${failed.sort().join(', ')}`);
   } finally {
-    await browser.close();
+    // Tab treo (đang tải dở) có thể làm browser.close() chờ mãi -> tối đa 20 giây.
+    await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 20000))]);
   }
 }
 
@@ -157,7 +159,10 @@ async function syncDay(page, day, db) {
     console.log(`[${tag}] file tải về bị cụt, tải lại (lần ${attempt})…`);
     await page.waitForTimeout(3000 * attempt);
   }
-  const docs = aggregate(readRows(filePath));
+  const kb = Math.round(fs.statSync(filePath).size / 1024);
+  console.log(`[${tag}] đã tải ${path.basename(filePath)} (${kb} KB), đang đọc file…`);
+  const { docs, rows } = await parseInWorker(filePath, 5 * 60 * 1000);
+  console.log(`[${tag}] đọc xong ${rows} dòng.`);
   console.log(`[${tag}] ${path.basename(filePath)}: ${PUBLIC_LOG ? Object.keys(docs).length + ' cửa hàng-ngày' : summarize(docs)}`);
   if (DRY_RUN) return;
   console.log(`[${tag}] đang ghi Firestore…`);
@@ -165,6 +170,19 @@ async function syncDay(page, day, db) {
   console.log(`[${tag}] ✅ Ghi ${written} doc thay đổi, bỏ qua ${skipped} doc không đổi.`);
   // Dọn file tạm: đã ghi xong rồi, file biến mất vì lý do gì cũng không phải lỗi của ngày này.
   try { fs.unlinkSync(filePath); } catch (e) { /* đã bị xoá trước đó */ }
+}
+
+// Đọc file trong worker, quá ms thì huỷ worker và báo lỗi (không để treo cả tiến trình).
+function parseInWorker(filePath, ms) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(path.join(__dirname, 'parse-worker.js'), { workerData: { filePath } });
+    const t = setTimeout(() => {
+      w.terminate();
+      reject(new Error(`Đọc file ${path.basename(filePath)} quá ${ms / 60000} phút - file có thể hỏng, xem lại trên Fabi`));
+    }, ms);
+    w.once('message', (m) => { clearTimeout(t); w.terminate(); resolve(m); });
+    w.once('error', (e) => { clearTimeout(t); reject(e); });
+  });
 }
 
 // Chữ lấy từ hộp thoại Fabi có email người xuất - che đi trước khi đưa vào log công khai.
@@ -350,7 +368,8 @@ async function saveDownload(download, day) {
   return downloadPath;
 }
 
-main().catch((err) => {
+// Thoát hẳn khi xong: một tab/worker treo không được giữ tiến trình sống tới khi GitHub huỷ job.
+main().then(() => process.exit(0), (err) => {
   console.error('❌ Lỗi:', err);
   process.exit(1);
 });
