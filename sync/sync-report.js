@@ -32,6 +32,16 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const arg = (name) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : null; };
 // Repo công khai: log trên GitHub Actions ai cũng đọc được -> không in doanh thu.
 const PUBLIC_LOG = !!process.env.GITHUB_ACTIONS;
+// Một ngày (xuất + tải + ghi) bình thường 1-6 phút. 21/10/2026 có lượt treo im lặng cả tiếng
+// tới khi GitHub huỷ job -> chặn mỗi ngày tối đa 15 phút để báo lỗi rõ và chạy tiếp ngày khác.
+const DAY_TIMEOUT_MS = 15 * 60 * 1000;
+function withTimeout(promise, ms, tag) {
+  let t;
+  const timer = new Promise((_, reject) => {
+    t = setTimeout(() => reject(Object.assign(new Error(`[${tag}] quá ${ms / 60000} phút chưa xong (treo)`), { timedOut: true })), ms);
+  });
+  return Promise.race([promise, timer]).finally(() => clearTimeout(t));
+}
 
 async function main() {
   loadEnv();
@@ -78,7 +88,7 @@ async function main() {
     await login(page);
     if (days.length === 1) {
       await goToReport(page);
-      await syncDay(page, days[0], db);
+      await withTimeout(syncDay(page, days[0], db), DAY_TIMEOUT_MS, days[0] || 'hôm nay');
       return;
     }
 
@@ -95,8 +105,10 @@ async function main() {
         await goToReport(p);
         for (let day; (day = queue.shift()); ) {
           try {
-            await syncDay(p, day, db);
+            await withTimeout(syncDay(p, day, db), DAY_TIMEOUT_MS, day);
           } catch (err) {
+            // Treo quá giờ: tab này có thể vẫn kẹt ở bước cũ -> bỏ tab, ngày còn lại để tab khác lấy.
+            if (err.timedOut) { console.error(`❌ ${day}: ${err.message}`); failed.push(day); return; }
             // Mạng chậm: Firestore đã ghi xong nhưng máy không kịp nhận phản hồi -> báo
             // DEADLINE_EXCEEDED dù dữ liệu đủ. syncState ghi ở batch cuối cùng của ngày,
             // có nó nghĩa là cả ngày đã vào hết.
@@ -137,6 +149,7 @@ async function syncDay(page, day, db) {
   let filePath = null;
   for (let attempt = 1; ; attempt++) {
     if (day) await pickDay(page, day);
+    console.log(`[${tag}] đang xuất báo cáo…`);
     filePath = await exportAndDownload(page, day);
     if (zipLooksComplete(filePath)) break;
     try { fs.unlinkSync(filePath); } catch (e) { /* kệ */ }
@@ -147,6 +160,7 @@ async function syncDay(page, day, db) {
   const docs = aggregate(readRows(filePath));
   console.log(`[${tag}] ${path.basename(filePath)}: ${PUBLIC_LOG ? Object.keys(docs).length + ' cửa hàng-ngày' : summarize(docs)}`);
   if (DRY_RUN) return;
+  console.log(`[${tag}] đang ghi Firestore…`);
   const { written, skipped } = await writeChanged(db, docs);
   console.log(`[${tag}] ✅ Ghi ${written} doc thay đổi, bỏ qua ${skipped} doc không đổi.`);
   // Dọn file tạm: đã ghi xong rồi, file biến mất vì lý do gì cũng không phải lỗi của ngày này.
