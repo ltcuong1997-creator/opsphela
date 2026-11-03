@@ -815,13 +815,40 @@ async function loadDays(from, to) {
   if (LOCAL) {
     const r = await fetch('/api/days?from=' + from + '&to=' + to);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'HTTP ' + r.status);
-    return r.json();
+    return (await r.json()).map(dropSources);
   }
   const snap = await FS.collection('d05Days').where('date', '>=', from).where('date', '<=', to).get();
   return snap.docs.map((d) => {
     const x = d.data();
-    return { ...x, updatedAt: x.updatedAt ? x.updatedAt.toDate().toISOString() : null };
+    return dropSources({ ...x, updatedAt: x.updatedAt ? x.updatedAt.toDate().toISOString() : null });
   });
+}
+
+/* Nguồn đơn bị loại khỏi MỌI số của báo cáo (mã nguồn = keyOf tên trên Fabi). "Ahamove" bỏ,
+   "Phela Ahamove" (phela-ahamove) giữ. Trừ doanh thu + TC của nguồn khỏi từng chi nhánh
+   (tổng, kênh giao hàng D, src) và khỏi tổng ngày. Món / PTTT / số lượng món không tách được
+   theo nguồn nên vẫn gồm đơn của nguồn này; ngày nạp trước khi lưu nguồn theo chi nhánh
+   (không có stores[].src) thì không trừ được. */
+const DROP_SOURCES = ['ahamove'];
+function dropSources(d) {
+  if (!d || !d.stores) return d;
+  let rev = 0, bills = 0, hit = false;
+  const stores = {};
+  for (const [id, st] of Object.entries(d.stores)) {
+    const drop = DROP_SOURCES.map((k) => st.src && st.src[k]).filter(Boolean);
+    if (!drop.length) { stores[id] = st; continue; }
+    hit = true;
+    const r = drop.reduce((a, v) => a + (v.revenue || 0), 0), b = drop.reduce((a, v) => a + (v.bills || 0), 0);
+    rev += r; bills += b;
+    const src = { ...st.src };
+    for (const k of DROP_SOURCES) delete src[k];
+    const dlv = st.dlv ? { ...st.dlv, revenue: (st.dlv.revenue || 0) - r, bills: (st.dlv.bills || 0) - b } : st.dlv;
+    stores[id] = { ...st, src, dlv, revenue: (st.revenue || 0) - r, bills: (st.bills || 0) - b };
+  }
+  const sources = { ...(d.sources || {}) };
+  for (const k of DROP_SOURCES) { if (sources[k]) hit = true; delete sources[k]; }
+  if (!hit) return d;
+  return { ...d, stores, sources, revenue: (d.revenue || 0) - rev, bills: (d.bills || 0) - bills };
 }
 
 /* Bản nhẹ cho chỗ chỉ cần số từng chi nhánh (AOV cả năm, COL%): tải TỪNG THÁNG một và chỉ giữ
